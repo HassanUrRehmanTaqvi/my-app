@@ -17,6 +17,9 @@ import com.example.data.model.TestEntity
 import com.example.data.model.TestResultEntity
 import com.example.data.model.UserEntity
 import com.example.repository.CollegeRepository
+import com.example.util.CsvImportSummary
+import com.example.util.ParsedCsvRow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -298,7 +301,68 @@ class CollegeViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             repository.archiveStudent(studentId)
             refreshValidationIssues(_currentOwnerId.value)
-            _snackbarMessage.value = "طالب علم آرکائیو ہو گیا (ڈیٹا محفوظ ہے)"
+            _snackbarMessage.value = "طالب علم آرکائیو ہو گیا (ڈیٹا اور حاضری محفوظ ہیں)"
+        }
+    }
+
+    fun restoreStudent(studentId: String) {
+        viewModelScope.launch {
+            repository.restoreStudent(studentId)
+            refreshValidationIssues(_currentOwnerId.value)
+            _snackbarMessage.value = "طالب علم فعال لسٹ میں بحال ہو گیا!"
+        }
+    }
+
+    suspend fun checkDuplicateRoll(rollNumber: String, className: String): StudentEntity? {
+        return repository.findStudentByRollAndClass(_currentOwnerId.value, rollNumber.trim(), className.trim())
+    }
+
+    // Class Archiving & Safe Management
+    fun getArchivedClasses(ownerId: String): Flow<List<ClassEntity>> = repository.getArchivedClasses(ownerId)
+
+    fun archiveClass(classId: String) {
+        viewModelScope.launch {
+            repository.archiveClass(classId)
+            _snackbarMessage.value = "کلاس کو آرکائیو کر دیا گیا! (تمام حاضری، ٹیسٹ اور ریکارڈ محفوظ ہیں)"
+        }
+    }
+
+    fun restoreClass(classId: String) {
+        viewModelScope.launch {
+            repository.restoreClass(classId)
+            _snackbarMessage.value = "کلاس کو دوبارہ فعال لسٹ میں بحال کر دیا گیا!"
+        }
+    }
+
+    fun deleteClassPermanently(classId: String) {
+        viewModelScope.launch {
+            repository.deleteClassPermanently(classId)
+            _snackbarMessage.value = "کلاس کو ڈیٹا بیس سے مکمل حذف کر دیا گیا"
+        }
+    }
+
+    suspend fun getClassStats(classId: String): com.example.repository.ClassStats {
+        return repository.getClassStats(classId)
+    }
+
+    // CSV Bulk Import
+    fun importCsvStudents(
+        parsedRows: List<ParsedCsvRow>,
+        updateExisting: Boolean,
+        onComplete: (CsvImportSummary) -> Unit
+    ) {
+        viewModelScope.launch {
+            val ownerId = _currentOwnerId.value
+            val yearId = _currentYearId.value
+            val summary = repository.importStudentsFromCsv(
+                parsedRows = parsedRows,
+                updateExisting = updateExisting,
+                ownerId = ownerId,
+                yearId = yearId
+            )
+            refreshValidationIssues(ownerId)
+            _snackbarMessage.value = summary.message
+            onComplete(summary)
         }
     }
 }

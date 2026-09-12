@@ -16,6 +16,8 @@ import com.example.data.model.SubjectEntity
 import com.example.data.model.TestEntity
 import com.example.data.model.TestResultEntity
 import com.example.data.model.UserEntity
+import com.example.util.CsvImportSummary
+import com.example.util.ParsedCsvRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
@@ -26,6 +28,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+
+data class ClassStats(
+    val attendanceSessionsCount: Int,
+    val attendanceRecordsCount: Int,
+    val testsCount: Int,
+    val studentsCount: Int
+)
 
 class CollegeRepository(private val database: AppDatabase) {
 
@@ -238,6 +247,13 @@ class CollegeRepository(private val database: AppDatabase) {
         studentDao.updateStudent(student)
     }
 
+    fun getArchivedStudents(ownerId: String): Flow<List<StudentEntity>> =
+        studentDao.getArchivedStudentsFlow(ownerId)
+
+    suspend fun findStudentByRollAndClass(ownerId: String, rollNumber: String, className: String): StudentEntity? = withContext(Dispatchers.IO) {
+        studentDao.findStudentByRollAndClass(ownerId, rollNumber, className)
+    }
+
     suspend fun archiveStudent(studentId: String) = withContext(Dispatchers.IO) {
         studentDao.archiveStudent(studentId)
     }
@@ -249,6 +265,72 @@ class CollegeRepository(private val database: AppDatabase) {
     suspend fun validateStudents(ownerId: String): List<NominalRollValidator.ValidationIssue> = withContext(Dispatchers.IO) {
         val students = studentDao.getAllActiveStudentsFlow(ownerId).firstOrNull() ?: emptyList()
         NominalRollValidator.validateNominalRoll(students)
+    }
+
+    suspend fun importStudentsFromCsv(
+        parsedRows: List<ParsedCsvRow>,
+        updateExisting: Boolean,
+        ownerId: String,
+        yearId: String
+    ): CsvImportSummary = withContext(Dispatchers.IO) {
+        var imported = 0
+        var updated = 0
+        var skipped = 0
+        var failed = 0
+
+        for (row in parsedRows) {
+            if (!row.isValid) {
+                failed++
+                continue
+            }
+            // Check if student already exists by roll number and class
+            val existing = studentDao.findStudentByRollAndClass(ownerId, row.rollNumber, row.className)
+            if (existing != null) {
+                if (updateExisting) {
+                    // Update details while strictly preserving studentId, academicYearId, ownerId, status, and createdAt.
+                    // This guarantees that all attendance records and test scores remain linked and intact.
+                    val updatedStudent = existing.copy(
+                        name = row.name.ifBlank { existing.name },
+                        fatherName = row.fatherName.ifBlank { existing.fatherName },
+                        phone = row.phone.ifBlank { existing.phone },
+                        section = row.section.ifBlank { existing.section },
+                        groupName = row.groupName.ifBlank { existing.groupName },
+                        electiveSubjectsRaw = if (row.optionalSubjects.isNotBlank()) row.optionalSubjects else existing.electiveSubjectsRaw
+                    )
+                    studentDao.updateStudent(updatedStudent)
+                    updated++
+                } else {
+                    skipped++
+                }
+            } else {
+                // Insert new student with unique UUID
+                val newStudent = StudentEntity(
+                    studentId = UUID.randomUUID().toString(),
+                    rollNumber = row.rollNumber,
+                    name = row.name,
+                    fatherName = row.fatherName,
+                    phone = row.phone,
+                    className = row.className,
+                    section = row.section,
+                    groupName = row.groupName,
+                    electiveSubjectsRaw = row.optionalSubjects,
+                    academicYearId = yearId,
+                    ownerId = ownerId,
+                    status = "Active"
+                )
+                studentDao.insertStudent(newStudent)
+                imported++
+            }
+        }
+
+        val message = "امپورٹ رپورٹ: $imported نئے شامل، $updated اپ ڈیٹ، $skipped چھوڑے گئے، $failed ناکام"
+        CsvImportSummary(
+            importedCount = imported,
+            updatedCount = updated,
+            skippedCount = skipped,
+            failedCount = failed,
+            message = message
+        )
     }
 
     // Subjects
@@ -279,7 +361,36 @@ class CollegeRepository(private val database: AppDatabase) {
     // Classes & Memberships
     fun getClasses(ownerId: String): Flow<List<ClassEntity>> = classDao.getClassesFlow(ownerId)
 
+    fun getArchivedClasses(ownerId: String): Flow<List<ClassEntity>> = classDao.getArchivedClassesFlow(ownerId)
+
+    fun getAllClasses(ownerId: String): Flow<List<ClassEntity>> = classDao.getAllClassesFlow(ownerId)
+
     fun getClass(classId: String): Flow<ClassEntity?> = classDao.getClassFlow(classId)
+
+    suspend fun archiveClass(classId: String) = withContext(Dispatchers.IO) {
+        classDao.archiveClass(classId)
+    }
+
+    suspend fun restoreClass(classId: String) = withContext(Dispatchers.IO) {
+        classDao.restoreClass(classId)
+    }
+
+    suspend fun deleteClassPermanently(classId: String) = withContext(Dispatchers.IO) {
+        classDao.deleteClass(classId)
+    }
+
+    suspend fun getClassStats(classId: String): ClassStats = withContext(Dispatchers.IO) {
+        val sessions = attendanceDao.getSessionCountForClass(classId)
+        val records = attendanceDao.getRecordCountForClass(classId)
+        val tests = testDao.getTestCountForClass(classId)
+        val students = membershipDao.getActiveMembershipCount(classId)
+        ClassStats(
+            attendanceSessionsCount = sessions,
+            attendanceRecordsCount = records,
+            testsCount = tests,
+            studentsCount = students
+        )
+    }
 
     suspend fun createClass(
         className: String,
@@ -328,6 +439,10 @@ class CollegeRepository(private val database: AppDatabase) {
 
     fun getActiveMemberships(classId: String): Flow<List<ClassMembershipEntity>> =
         membershipDao.getActiveMembershipsFlow(classId)
+
+    suspend fun getActiveMembershipsDirect(classId: String): List<ClassMembershipEntity> = withContext(Dispatchers.IO) {
+        membershipDao.getActiveMemberships(classId)
+    }
 
     suspend fun addStudentToClass(classId: String, studentId: String) = withContext(Dispatchers.IO) {
         val membership = ClassMembershipEntity(

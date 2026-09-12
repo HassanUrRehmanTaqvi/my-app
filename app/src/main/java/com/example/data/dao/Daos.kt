@@ -56,11 +56,17 @@ interface StudentDao {
     @Query("SELECT * FROM students WHERE ownerId = :ownerId AND status != 'Archived' ORDER BY CAST(rollNumber AS INTEGER) ASC, rollNumber ASC")
     fun getAllActiveStudentsFlow(ownerId: String): Flow<List<StudentEntity>>
 
+    @Query("SELECT * FROM students WHERE ownerId = :ownerId AND status = 'Archived' ORDER BY CAST(rollNumber AS INTEGER) ASC, rollNumber ASC")
+    fun getArchivedStudentsFlow(ownerId: String): Flow<List<StudentEntity>>
+
     @Query("SELECT * FROM students WHERE ownerId = :ownerId AND className = :className AND status != 'Archived' ORDER BY CAST(rollNumber AS INTEGER) ASC, rollNumber ASC")
     fun getStudentsByClassFlow(ownerId: String, className: String): Flow<List<StudentEntity>>
 
     @Query("SELECT * FROM students WHERE ownerId = :ownerId AND className = :className AND academicYearId = :academicYearId AND status != 'Archived' ORDER BY CAST(rollNumber AS INTEGER) ASC, rollNumber ASC")
     suspend fun getStudentsByClassAndYear(ownerId: String, className: String, academicYearId: String): List<StudentEntity>
+
+    @Query("SELECT * FROM students WHERE ownerId = :ownerId AND rollNumber = :rollNumber AND className = :className LIMIT 1")
+    suspend fun findStudentByRollAndClass(ownerId: String, rollNumber: String, className: String): StudentEntity?
 
     @Query("SELECT * FROM students WHERE studentId = :studentId")
     suspend fun getStudentById(studentId: String): StudentEntity?
@@ -107,8 +113,14 @@ interface SubjectDao {
 
 @Dao
 interface ClassDao {
-    @Query("SELECT * FROM classes WHERE ownerId = :ownerId ORDER BY createdAt DESC")
+    @Query("SELECT * FROM classes WHERE ownerId = :ownerId AND isArchived = 0 ORDER BY createdAt DESC")
     fun getClassesFlow(ownerId: String): Flow<List<ClassEntity>>
+
+    @Query("SELECT * FROM classes WHERE ownerId = :ownerId AND isArchived = 1 ORDER BY createdAt DESC")
+    fun getArchivedClassesFlow(ownerId: String): Flow<List<ClassEntity>>
+
+    @Query("SELECT * FROM classes WHERE ownerId = :ownerId ORDER BY createdAt DESC")
+    fun getAllClassesFlow(ownerId: String): Flow<List<ClassEntity>>
 
     @Query("SELECT * FROM classes WHERE classId = :classId")
     suspend fun getClassById(classId: String): ClassEntity?
@@ -122,6 +134,12 @@ interface ClassDao {
     @Update
     suspend fun updateClass(classEntity: ClassEntity)
 
+    @Query("UPDATE classes SET isArchived = 1 WHERE classId = :classId")
+    suspend fun archiveClass(classId: String)
+
+    @Query("UPDATE classes SET isArchived = 0 WHERE classId = :classId")
+    suspend fun restoreClass(classId: String)
+
     @Query("DELETE FROM classes WHERE classId = :classId")
     suspend fun deleteClass(classId: String)
 }
@@ -133,6 +151,9 @@ interface ClassMembershipDao {
 
     @Query("SELECT * FROM class_memberships WHERE classId = :classId AND status = 'Active'")
     suspend fun getActiveMemberships(classId: String): List<ClassMembershipEntity>
+
+    @Query("SELECT COUNT(*) FROM class_memberships WHERE classId = :classId AND status = 'Active'")
+    suspend fun getActiveMembershipCount(classId: String): Int
 
     @Query("SELECT * FROM class_memberships WHERE classId = :classId")
     suspend fun getAllMembershipsForClass(classId: String): List<ClassMembershipEntity>
@@ -160,6 +181,12 @@ interface AttendanceDao {
 
     @Query("SELECT * FROM attendance_sessions WHERE classId = :classId ORDER BY date DESC, timestamp DESC")
     suspend fun getSessionsForClass(classId: String): List<AttendanceSessionEntity>
+
+    @Query("SELECT COUNT(*) FROM attendance_sessions WHERE classId = :classId")
+    suspend fun getSessionCountForClass(classId: String): Int
+
+    @Query("SELECT COUNT(*) FROM attendance_records ar INNER JOIN attendance_sessions s ON ar.sessionId = s.sessionId WHERE s.classId = :classId")
+    suspend fun getRecordCountForClass(classId: String): Int
 
     @Query("SELECT * FROM attendance_sessions WHERE ownerId = :ownerId ORDER BY date DESC, timestamp DESC")
     fun getAllSessionsFlow(ownerId: String): Flow<List<AttendanceSessionEntity>>
@@ -199,6 +226,9 @@ interface AttendanceDao {
 interface TestDao {
     @Query("SELECT * FROM tests WHERE classId = :classId ORDER BY date DESC")
     fun getTestsForClassFlow(classId: String): Flow<List<TestEntity>>
+
+    @Query("SELECT COUNT(*) FROM tests WHERE classId = :classId")
+    suspend fun getTestCountForClass(classId: String): Int
 
     @Query("SELECT * FROM tests WHERE ownerId = :ownerId ORDER BY date DESC")
     fun getAllTestsFlow(ownerId: String): Flow<List<TestEntity>>

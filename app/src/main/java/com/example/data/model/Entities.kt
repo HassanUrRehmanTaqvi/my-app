@@ -88,6 +88,7 @@ data class ClassEntity(
     val subjectType: String, // "Compulsory" or "Elective"
     val teacherName: String,
     val ownerId: String,
+    val isArchived: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 )
 

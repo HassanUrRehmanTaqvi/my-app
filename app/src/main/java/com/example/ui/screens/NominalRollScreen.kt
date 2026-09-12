@@ -1,5 +1,12 @@
 package com.example.ui.screens
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,8 +30,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -32,6 +41,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -44,11 +54,13 @@ import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +69,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -69,6 +82,10 @@ import com.example.ui.theme.CrimsonLight
 import com.example.ui.theme.EmeraldLight
 import com.example.ui.theme.EmeraldPresent
 import com.example.ui.viewmodel.CollegeViewModel
+import com.example.util.CsvImportSummary
+import com.example.util.CsvParseResult
+import com.example.util.CsvParserHelper
+import com.example.util.ParsedCsvRow
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -79,10 +96,17 @@ fun NominalRollScreen(
 ) {
     val ownerId by viewModel.currentOwnerId.collectAsStateWithLifecycle()
     val allStudents by viewModel.repository.getActiveStudents(ownerId).collectAsStateWithLifecycle(emptyList())
+    val archivedStudents by viewModel.repository.getArchivedStudents(ownerId).collectAsStateWithLifecycle(emptyList())
     val validationIssues by viewModel.validationIssues.collectAsStateWithLifecycle()
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
-    val tabTitles = listOf("First Year (11th)", "Second Year (12th)", "تمام طلبہ (${allStudents.size})", "انتباہات (${validationIssues.size})")
+    val tabTitles = listOf(
+        "First Year",
+        "Second Year",
+        "تمام طلبہ (${allStudents.size})",
+        "آرکائیو شدہ (${archivedStudents.size})",
+        "انتباہات (${validationIssues.size})"
+    )
 
     var searchQuery by remember { mutableStateOf("") }
     var showAddStudentDialog by remember { mutableStateOf(false) }
@@ -158,30 +182,107 @@ fun NominalRollScreen(
                             Text(
                                 text = title,
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = if (index == 3 && validationIssues.isNotEmpty()) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurface
+                                color = if (index == 4 && validationIssues.isNotEmpty()) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurface
                             )
                         }
                     )
                 }
             }
 
-            // Filter Students
-            val displayedStudents = allStudents.filter { s ->
-                val matchesTab = when (selectedTabIndex) {
-                    0 -> s.className == "First Year"
-                    1 -> s.className == "Second Year"
-                    else -> true
+            // Tab 0, 1, 2: Active Students
+            if (selectedTabIndex in 0..2) {
+                val displayedStudents = allStudents.filter { s ->
+                    val matchesTab = when (selectedTabIndex) {
+                        0 -> s.className == "First Year"
+                        1 -> s.className == "Second Year"
+                        else -> true
+                    }
+                    val matchesSearch = searchQuery.isBlank() ||
+                            s.name.contains(searchQuery, ignoreCase = true) ||
+                            s.rollNumber.contains(searchQuery) ||
+                            s.fatherName.contains(searchQuery, ignoreCase = true) ||
+                            s.phone.contains(searchQuery)
+                    matchesTab && matchesSearch
                 }
-                val matchesSearch = searchQuery.isBlank() ||
-                        s.name.contains(searchQuery, ignoreCase = true) ||
-                        s.rollNumber.contains(searchQuery) ||
-                        s.fatherName.contains(searchQuery, ignoreCase = true) ||
-                        s.phone.contains(searchQuery)
-                matchesTab && matchesSearch
-            }
 
-            if (selectedTabIndex == 3) {
-                // Validation Issues List
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    contentPadding = PaddingValues(top = 12.dp, bottom = 90.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (displayedStudents.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("اس سیکشن میں کوئی طالب علم موجود نہیں ہے", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    } else {
+                        items(displayedStudents) { student ->
+                            StudentMasterCard(
+                                student = student,
+                                isArchived = false,
+                                onEdit = { studentToEdit = student },
+                                onArchive = { viewModel.archiveStudent(student.studentId) },
+                                onRestore = {}
+                            )
+                        }
+                    }
+                }
+            } else if (selectedTabIndex == 3) {
+                // Tab 3: Archived Students
+                val displayedArchived = archivedStudents.filter { s ->
+                    searchQuery.isBlank() ||
+                            s.name.contains(searchQuery, ignoreCase = true) ||
+                            s.rollNumber.contains(searchQuery) ||
+                            s.fatherName.contains(searchQuery, ignoreCase = true)
+                }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    contentPadding = PaddingValues(top = 12.dp, bottom = 90.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (displayedArchived.isEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "کوئی آرکائیو شدہ طالب علم نہیں ہے",
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "کسی طالب علم کو آرکائیو کرنے سے ان کی سابقہ حاضری اور رزلٹ ریکارڈ مکمل محفوظ رہتا ہے۔",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        items(displayedArchived) { student ->
+                            StudentMasterCard(
+                                student = student,
+                                isArchived = true,
+                                onEdit = { studentToEdit = student },
+                                onArchive = {},
+                                onRestore = { viewModel.restoreStudent(student.studentId) }
+                            )
+                        }
+                    }
+                }
+            } else if (selectedTabIndex == 4) {
+                // Tab 4: Validation Issues List
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                     contentPadding = PaddingValues(top = 12.dp, bottom = 90.dp),
@@ -213,28 +314,15 @@ fun NominalRollScreen(
                         }
                     }
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                    contentPadding = PaddingValues(top = 12.dp, bottom = 90.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(displayedStudents) { student ->
-                        StudentMasterCard(
-                            student = student,
-                            onEdit = { studentToEdit = student },
-                            onArchive = { viewModel.archiveStudent(student.studentId) }
-                        )
-                    }
-                }
             }
         }
 
-        // Add or Edit Student Dialog
+        // Add or Edit Student Dialog with DUPLICATE DETECTION
         if (showAddStudentDialog || studentToEdit != null) {
             AddEditStudentDialog(
                 student = studentToEdit,
                 ownerId = ownerId,
+                allStudents = allStudents,
                 onDismiss = {
                     showAddStudentDialog = false
                     studentToEdit = null
@@ -251,10 +339,11 @@ fun NominalRollScreen(
             )
         }
 
-        // Bulk Import CSV Dialog (Section 47)
+        // Bulk Import CSV Dialog with Android File Picker & Preview
         if (showBulkImportDialog) {
             BulkImportCsvDialog(
                 ownerId = ownerId,
+                allStudents = allStudents,
                 viewModel = viewModel,
                 onDismiss = { showBulkImportDialog = false }
             )
@@ -265,15 +354,19 @@ fun NominalRollScreen(
 @Composable
 fun StudentMasterCard(
     student: StudentEntity,
+    isArchived: Boolean,
     onEdit: () -> Unit,
-    onArchive: () -> Unit
+    onArchive: () -> Unit,
+    onRestore: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("student_card_${student.rollNumber}"),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isArchived) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f) else MaterialTheme.colorScheme.surface
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -285,24 +378,40 @@ fun StudentMasterCard(
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     Surface(
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
+                        color = if (isArchived) MaterialTheme.colorScheme.outlineVariant else MaterialTheme.colorScheme.primaryContainer,
                         modifier = Modifier.size(36.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(
                                 text = student.rollNumber,
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = if (isArchived) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
-                        Text(
-                            text = student.name,
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = student.name,
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (isArchived) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = CrimsonLight
+                                ) {
+                                    Text(
+                                        text = "آرکائیو شدہ",
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = CrimsonAbsent
+                                    )
+                                }
+                            }
+                        }
                         Text(
                             text = "ولدیت: ${student.fatherName} • فون: ${student.phone}",
                             style = MaterialTheme.typography.bodySmall,
@@ -312,11 +421,23 @@ fun StudentMasterCard(
                 }
 
                 Row {
-                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                    }
-                    IconButton(onClick = onArchive, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Archive, contentDescription = "Archive", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (isArchived) {
+                        OutlinedButton(
+                            onClick = onRestore,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Icon(Icons.Default.Restore, contentDescription = "Restore", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("بحال کریں", style = MaterialTheme.typography.labelSmall)
+                        }
+                    } else {
+                        IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                        IconButton(onClick = onArchive, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Archive, contentDescription = "Archive", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
@@ -398,6 +519,7 @@ fun ValidationIssueCard(
 fun AddEditStudentDialog(
     student: StudentEntity?,
     ownerId: String,
+    allStudents: List<StudentEntity>,
     onDismiss: () -> Unit,
     onSave: (StudentEntity) -> Unit
 ) {
@@ -414,6 +536,17 @@ fun AddEditStudentDialog(
     var sectionExpanded by remember { mutableStateOf(false) }
     var groupExpanded by remember { mutableStateOf(false) }
 
+    // REAL-TIME DUPLICATE DETECTION
+    val duplicateStudent = remember(rollNumber, className) {
+        val trimmedRoll = rollNumber.trim()
+        if (trimmedRoll.isBlank()) null
+        else allStudents.find {
+            it.rollNumber.trim().equals(trimmedRoll, ignoreCase = true) &&
+            it.className.trim().equals(className.trim(), ignoreCase = true) &&
+            it.studentId != student?.studentId
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -421,14 +554,34 @@ fun AddEditStudentDialog(
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth().height(420.dp),
+                modifier = Modifier.fillMaxWidth().height(440.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Duplicate warning banner if detected
+                if (duplicateStudent != null) {
+                    Surface(
+                        color = Color(0xFFFEF2F2),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().border(1.dp, Color(0xFFF87171), RoundedCornerShape(8.dp))
+                    ) {
+                        Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "انتباہ: رول نمبر ${duplicateStudent.rollNumber} پہلے ہی '${duplicateStudent.name}' (سیکشن ${duplicateStudent.section}) کو الاٹ ہے۔ مختلف رول نمبر درج کریں۔",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF991B1B)
+                            )
+                        }
+                    }
+                }
+
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = rollNumber,
                         onValueChange = { rollNumber = it },
                         label = { Text("رول نمبر") },
+                        isError = duplicateStudent != null,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         modifier = Modifier.weight(0.8f)
@@ -536,7 +689,7 @@ fun AddEditStudentDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (rollNumber.isNotBlank() && name.isNotBlank()) {
+                    if (rollNumber.isNotBlank() && name.isNotBlank() && duplicateStudent == null) {
                         val finalStudent = (student ?: StudentEntity(
                             studentId = UUID.randomUUID().toString(),
                             rollNumber = rollNumber.trim(),
@@ -561,7 +714,8 @@ fun AddEditStudentDialog(
                         )
                         onSave(finalStudent)
                     }
-                }
+                },
+                enabled = rollNumber.isNotBlank() && name.isNotBlank() && duplicateStudent == null
             ) {
                 Text("محفوظ کریں")
             }
@@ -574,87 +728,422 @@ fun AddEditStudentDialog(
     )
 }
 
+/**
+ * Android File-Picker Based CSV Import with Preview & Duplicate Protection
+ */
 @Composable
 fun BulkImportCsvDialog(
     ownerId: String,
+    allStudents: List<StudentEntity>,
     viewModel: CollegeViewModel,
     onDismiss: () -> Unit
 ) {
-    var rawText by remember {
+    val context = LocalContext.current
+    var selectedFileName by remember { mutableStateOf<String?>(null) }
+    var parseResult by remember { mutableStateOf<CsvParseResult?>(null) }
+    var updateExisting by remember { mutableStateOf(true) }
+    var importStatusMessage by remember { mutableStateOf<String?>(null) }
+    var isImporting by remember { mutableStateOf(false) }
+    var activeMode by remember { mutableStateOf("picker") } // "picker" or "paste"
+    var rawPasteText by remember {
         mutableStateOf(
-            "Roll,Name,FatherName,Phone,Class,Section,Group\n" +
-            "701,Muhammad Arham,Tariq Mahmood,03001234567,First Year,B,Pre-Medical\n" +
-            "702,Abdullah Khan,Muhammad Aslam,03019876543,First Year,B,Pre-Engineering\n" +
-            "703,Ali Hassan,Raza Ahmad,03025556677,First Year,B,ICS"
+            "Roll Number,Student Name,Father Name,Phone,Class,Section,Group,Option\n" +
+            "701,Muhammad Arham,Tariq Mahmood,03001234567,First Year,B,Pre-Medical,Biology\n" +
+            "702,Abdullah Khan,Muhammad Aslam,03019876543,First Year,B,Pre-Engineering,Mathematics\n" +
+            "703,Ali Hassan,Raza Ahmad,03025556677,First Year,B,ICS,Computer Science"
         )
     }
-    var importStatus by remember { mutableStateOf("") }
+    var parseErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    // File picker launcher
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val fileName = getFileNameFromUri(context, uri)
+                selectedFileName = fileName
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val lines = CsvParserHelper.readStreamToLines(stream)
+                    val result = CsvParserHelper.parseCsvData(lines, allStudents)
+                    parseResult = result
+                    parseErrorMessage = null
+                }
+            } catch (e: Exception) {
+                parseErrorMessage = "فائل پڑھنے میں مسئلہ پیش آیا: ${e.localizedMessage}"
+            }
+        }
+    }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("بلک نامینل رول امپورٹ (CSV / Text)") },
+        onDismissRequest = { if (!isImporting) onDismiss() },
+        title = {
+            Text("بلک نامینل رول امپورٹ (Real CSV Import)")
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "CSV ڈیٹا پیسٹ کریں (Roll, Name, FatherName, Phone, Class, Section, Group):",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                OutlinedTextField(
-                    value = rawText,
-                    onValueChange = { rawText = it },
-                    modifier = Modifier.fillMaxWidth().height(200.dp),
-                    maxLines = 10
-                )
-                if (importStatus.isNotBlank()) {
-                    Text(text = importStatus, color = EmeraldPresent, fontWeight = FontWeight.Bold)
+            Column(
+                modifier = Modifier.fillMaxWidth().height(460.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // If an import just finished, show summary
+                if (importStatusMessage != null) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = EmeraldLight),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldPresent)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "امپورٹ مکمل ہو گئی!",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = EmeraldPresent
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = importStatusMessage ?: "",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                } else if (parseResult == null) {
+                    // STEP 1: Selection Mode (File Picker or Text Paste)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { activeMode = "picker" },
+                            modifier = Modifier.weight(1f),
+                            colors = if (activeMode == "picker") ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
+                        ) {
+                            Text("فائل منتخب کریں")
+                        }
+                        Button(
+                            onClick = { activeMode = "paste" },
+                            modifier = Modifier.weight(1f),
+                            colors = if (activeMode == "paste") ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
+                        ) {
+                            Text("ٹیکسٹ پیسٹ")
+                        }
+                    }
+
+                    if (activeMode == "picker") {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FileOpen,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "ڈیوائس سے .csv فائل منتخب کریں",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                )
+                                Text(
+                                    text = "لازمی فیلڈز: Roll Number, Student Name, Father Name, Phone, Class, Section, Group, Option",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Button(
+                                    onClick = {
+                                        filePickerLauncher.launch(
+                                            arrayOf("text/*", "text/comma-separated-values", "text/csv", "application/csv", "*/*")
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("CSV فائل کا انتخاب کریں")
+                                }
+                            }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "CSV مواد یہاں پیسٹ کریں (پہلی لائن ہیڈر ہو سکتی ہے):",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            OutlinedTextField(
+                                value = rawPasteText,
+                                onValueChange = { rawPasteText = it },
+                                modifier = Modifier.fillMaxWidth().height(200.dp),
+                                maxLines = 10
+                            )
+                            Button(
+                                onClick = {
+                                    val lines = rawPasteText.lines()
+                                    val res = CsvParserHelper.parseCsvData(lines, allStudents)
+                                    selectedFileName = "Pasted_CSV.csv"
+                                    parseResult = res
+                                    parseErrorMessage = null
+                                },
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
+                                Text("ڈیٹا چیک اور پریویو کریں")
+                            }
+                        }
+                    }
+
+                    if (parseErrorMessage != null) {
+                        Surface(
+                            color = Color(0xFFFEF2F2),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                        ) {
+                            Text(
+                                text = parseErrorMessage ?: "",
+                                color = Color(0xFFDC2626),
+                                modifier = Modifier.padding(10.dp),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                } else {
+                    // STEP 2: PREVIEW & DUPLICATE RESOLUTION
+                    val result = parseResult!!
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = "فائل: ${selectedFileName ?: "CSV"}",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    parseResult = null
+                                    selectedFileName = null
+                                }
+                            ) {
+                                Text("دوسری فائل")
+                            }
+                        }
+
+                        // Stats Badges
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFDCFCE7),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("نئے طلبہ", style = MaterialTheme.typography.labelSmall, color = Color(0xFF166534))
+                                    Text("${result.newRows.size}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = Color(0xFF166534))
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFFEF3C7),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("موجودہ طلبہ", style = MaterialTheme.typography.labelSmall, color = Color(0xFF92400E))
+                                    Text("${result.existingMatchRows.size}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = Color(0xFF92400E))
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFFEE2E2),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("ناقص قطاریں", style = MaterialTheme.typography.labelSmall, color = Color(0xFF991B1B))
+                                    Text("${result.invalidRows.size}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = Color(0xFF991B1B))
+                                }
+                            }
+                        }
+
+                        // Duplicate Handling Policy
+                        if (result.existingMatchRows.isNotEmpty()) {
+                            Card(
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Text(
+                                        text = "ڈپلیکیٹ / موجودہ طلبہ کا طریقہ کار:",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().clickable { updateExisting = true },
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(selected = updateExisting, onClick = { updateExisting = true })
+                                        Text("معلومات اپ ڈیٹ کریں (سابقہ حاضری و ریکارڈ محفوظ رہیں گے)", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().clickable { updateExisting = false },
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(selected = !updateExisting, onClick = { updateExisting = false })
+                                        Text("ڈپلیکیٹ طلبہ کو چھوڑ دیں (Skip Duplicates)", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Preview Table
+                        Text(
+                            text = "امپورٹ پریویو (${result.validRows.size} درست قطاریں):",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                                .padding(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(result.allParsedRows) { row ->
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = when {
+                                        !row.isValid -> Color(0xFFFEF2F2)
+                                        row.isDuplicateOfExisting -> Color(0xFFFFFBEB)
+                                        else -> MaterialTheme.colorScheme.surface
+                                    },
+                                    modifier = Modifier.fillMaxWidth().padding(2.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = when {
+                                                    !row.isValid -> Color(0xFFFCA5A5)
+                                                    row.isDuplicateOfExisting -> Color(0xFFFDE68A)
+                                                    else -> Color(0xFFBBF7D0)
+                                                }
+                                            ) {
+                                                Text(
+                                                    text = when {
+                                                        !row.isValid -> "ناقص"
+                                                        row.isDuplicateOfExisting -> "موجودہ"
+                                                        else -> "نیا"
+                                                    },
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Column {
+                                                Text(
+                                                    text = "${row.rollNumber}. ${row.name}",
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
+                                                )
+                                                Text(
+                                                    text = "${row.className} • Sec ${row.section} • ${row.groupName}${if (row.optionalSubjects.isNotBlank()) " • اختیاری: " + row.optionalSubjects else ""}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                if (row.validationError != null) {
+                                                    Text(
+                                                        text = "خرابی: ${row.validationError}",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = Color(0xFFDC2626)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    val lines = rawText.lines().filter { it.isNotBlank() }
-                    var importedCount = 0
-                    lines.drop(1).forEach { line ->
-                        val parts = line.split(",").map { it.trim() }
-                        if (parts.size >= 4) {
-                            val roll = parts.getOrNull(0) ?: ""
-                            val name = parts.getOrNull(1) ?: ""
-                            val father = parts.getOrNull(2) ?: ""
-                            val phone = parts.getOrNull(3) ?: ""
-                            val cls = parts.getOrNull(4) ?: "First Year"
-                            val sec = parts.getOrNull(5) ?: "B"
-                            val grp = parts.getOrNull(6) ?: "Pre-Medical"
-
-                            if (roll.isNotBlank() && name.isNotBlank()) {
-                                val s = StudentEntity(
-                                    studentId = UUID.randomUUID().toString(),
-                                    rollNumber = roll,
-                                    name = name,
-                                    fatherName = father,
-                                    phone = phone,
-                                    className = cls,
-                                    section = sec,
-                                    groupName = grp,
-                                    electiveSubjectsRaw = "",
-                                    academicYearId = "year_2026_27",
-                                    ownerId = ownerId
-                                )
-                                viewModel.addStudentToNominalRoll(s)
-                                importedCount++
-                            }
-                        }
-                    }
-                    importStatus = "$importedCount طلبہ کامیابی سے شامل کر لیے گئے!"
+            if (importStatusMessage != null) {
+                Button(onClick = onDismiss) {
+                    Text("مکمل (Done)")
                 }
-            ) {
-                Text("امپورٹ کریں")
+            } else if (parseResult != null) {
+                val validCount = parseResult!!.validRows.size
+                Button(
+                    onClick = {
+                        val result = parseResult ?: return@Button
+                        isImporting = true
+                        viewModel.importCsvStudents(
+                            parsedRows = result.validRows,
+                            updateExisting = updateExisting,
+                            onComplete = { summary ->
+                                isImporting = false
+                                importStatusMessage = "نتیجہ: ${summary.importedCount} نئے شامل کیے گئے، ${summary.updatedCount} اپ ڈیٹ کیے گئے، ${summary.skippedCount} چھوڑے گئے، اور ${summary.failedCount} ناقص پائے گئے۔"
+                            }
+                        )
+                    },
+                    enabled = validCount > 0 && !isImporting
+                ) {
+                    Text(if (isImporting) "امپورٹ ہو رہا ہے..." else "امپورٹ شروع کریں ($validCount طلبہ)")
+                }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("بند کریں")
+            if (importStatusMessage == null) {
+                TextButton(onClick = onDismiss, enabled = !isImporting) {
+                    Text("منسوخ")
+                }
             }
         }
     )
 }
+
+private fun getFileNameFromUri(context: Context, uri: Uri): String {
+    var result: String? = null
+    if (uri.scheme == "content") {
+        try {
+            val cursor = context.contentResolver.query(uri, null, null, null, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx != -1) {
+                        result = it.getString(idx)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // fallback
+        }
+    }
+    if (result == null) {
+        result = uri.path?.substringAfterLast('/')
+    }
+    return result ?: "students.csv"
+}
+

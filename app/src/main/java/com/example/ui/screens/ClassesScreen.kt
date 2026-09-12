@@ -23,14 +23,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PersonRemove
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -50,12 +53,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,6 +78,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.ClassEntity
 import com.example.data.model.StudentEntity
 import com.example.data.model.SubjectEntity
+import com.example.repository.ClassStats
+import com.example.ui.theme.CrimsonAbsent
+import com.example.ui.theme.CrimsonLight
 import com.example.ui.theme.EmeraldPresent
 import com.example.ui.viewmodel.CollegeViewModel
 import kotlinx.coroutines.launch
@@ -85,96 +94,192 @@ fun ClassesScreen(
     modifier: Modifier = Modifier
 ) {
     val ownerId by viewModel.currentOwnerId.collectAsStateWithLifecycle()
-    val classes by viewModel.repository.getClasses(ownerId).collectAsStateWithLifecycle(emptyList())
+    val classes by viewModel.repository.getClasses(ownerId).collectAsStateWithLifecycle(emptyList<ClassEntity>())
+    val archivedClasses by viewModel.getArchivedClasses(ownerId).collectAsStateWithLifecycle(emptyList<ClassEntity>())
     val subjects by viewModel.repository.getSubjects(ownerId).collectAsStateWithLifecycle(emptyList())
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    val tabTitles = listOf("فعال کلاسز (${classes.size})", "آرکائیو شدہ کلاسز (${archivedClasses.size})")
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var selectedClassForManage by remember { mutableStateOf<ClassEntity?>(null) }
     var classToRename by remember { mutableStateOf<ClassEntity?>(null) }
+    var classToArchive by remember { mutableStateOf<ClassEntity?>(null) }
+    var classToDelete by remember { mutableStateOf<ClassEntity?>(null) }
+    var classStatsForDeletion by remember { mutableStateOf<ClassStats?>(null) }
+    var isLoadingStats by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     Box(modifier = modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "کلاسز کی فہرست (Classes)",
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Text(
-                            text = "کل کلاسز: ${classes.size} • پنجاب ایچ ایس ایس سی سکیم",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "کلاسز کی فہرست (Classes)",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Text(
+                        text = "کل کلاسز: ${classes.size} • پنجاب ایچ ایس ایس سی سکیم",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
-                    Button(
-                        onClick = { showCreateDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.testTag("create_class_button")
-                    ) {
-                        Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("نئی کلاس")
-                    }
+                Button(
+                    onClick = { showCreateDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("create_class_button")
+                ) {
+                    Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("نئی کلاس")
                 }
             }
 
-            if (classes.isEmpty()) {
-                item {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 20.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
+            // Tabs for Active vs Archived
+            PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
+                tabTitles.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTabIndex == index,
+                        onClick = { selectedTabIndex = index },
+                        text = {
                             Text(
-                                text = "ابھی تک کوئی کلاس رجسٹر نہیں ہوئی",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                text = title,
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
                             )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "مضمون منتخب کریں، نامینل رول سے لازمی یا اختیاری طلبہ خودکار فلٹر ہوں گے!",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Button(onClick = { showCreateDialog = true }) {
-                                Text("پہلی کلاس بنائیں")
+                        }
+                    )
+                }
+            }
+
+            if (selectedTabIndex == 0) {
+                // Active Classes List
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    if (classes.isEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 20.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(32.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "ابھی تک کوئی کلاس رجسٹر نہیں ہوئی",
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "مضمون منتخب کریں، نامینل رول سے لازمی یا اختیاری طلبہ خودکار فلٹر ہوں گے!",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Button(onClick = { showCreateDialog = true }) {
+                                        Text("پہلی کلاس بنائیں")
+                                    }
+                                }
                             }
+                        }
+                    } else {
+                        items(classes) { cls ->
+                            ClassManagementCard(
+                                classEntity = cls,
+                                isArchived = false,
+                                viewModel = viewModel,
+                                onTakeAttendance = { onTakeAttendance(cls.classId) },
+                                onAddTest = { onAddTest(cls.classId) },
+                                onManageStudents = { selectedClassForManage = cls },
+                                onRename = { classToRename = cls },
+                                onArchive = { classToArchive = cls },
+                                onRestore = {},
+                                onDelete = {}
+                            )
                         }
                     }
                 }
             } else {
-                items(classes) { cls ->
-                    ClassManagementCard(
-                        classEntity = cls,
-                        viewModel = viewModel,
-                        onTakeAttendance = { onTakeAttendance(cls.classId) },
-                        onAddTest = { onAddTest(cls.classId) },
-                        onManageStudents = { selectedClassForManage = cls },
-                        onRename = { classToRename = cls }
-                    )
+                // Archived Classes List
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    if (archivedClasses.isEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 20.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(32.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "کوئی آرکائیو شدہ کلاس موجود نہیں ہے",
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "جب کوئی تعلیمی سیشن مکمل ہو یا کلاس کو وقتی طور پر چھپانا ہو، تو آپ اسے آرکائیو کر سکتے ہیں۔ اس سے سابقہ حاضری مکمل محفوظ رہتی ہے۔",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        items(archivedClasses) { cls ->
+                            ClassManagementCard(
+                                classEntity = cls,
+                                isArchived = true,
+                                viewModel = viewModel,
+                                onTakeAttendance = { onTakeAttendance(cls.classId) },
+                                onAddTest = { onAddTest(cls.classId) },
+                                onManageStudents = { selectedClassForManage = cls },
+                                onRename = { classToRename = cls },
+                                onArchive = {},
+                                onRestore = { viewModel.restoreClass(cls.classId) },
+                                onDelete = {
+                                    classToDelete = cls
+                                    isLoadingStats = true
+                                    coroutineScope.launch {
+                                        classStatsForDeletion = viewModel.getClassStats(cls.classId)
+                                        isLoadingStats = false
+                                    }
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -236,17 +341,148 @@ fun ClassesScreen(
                 }
             )
         }
+
+        // Archive Class Confirmation Dialog
+        classToArchive?.let { cls ->
+            AlertDialog(
+                onDismissRequest = { classToArchive = null },
+                icon = { Icon(Icons.Default.Archive, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = { Text("کلاس آرکائیو کریں") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "کیا آپ واقعی کلاس '${cls.className}' کو آرکائیو کرنا چاہتے ہیں؟",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "آرکائیو کرنے سے یہ کلاس مین لسٹ سے ہٹ جائے گی، تاہم اس کی تمام سابقہ حاضری، طلبہ کی ممبرشپ اور ٹیسٹ رزلٹس مکمل محفوظ رہیں گے اور کسی بھی وقت واپس بحال کیے جا سکتے ہیں۔",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.archiveClass(cls.classId)
+                            classToArchive = null
+                        }
+                    ) {
+                        Text("آرکائیو کریں")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { classToArchive = null }) {
+                        Text("منسوخ")
+                    }
+                }
+            )
+        }
+
+        // Delete Class Safety Check Dialog
+        classToDelete?.let { cls ->
+            AlertDialog(
+                onDismissRequest = {
+                    classToDelete = null
+                    classStatsForDeletion = null
+                },
+                icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFDC2626)) },
+                title = { Text("کلاس حذف کرنے کی تصدیق") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (isLoadingStats) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("کلاس کے تاریخی ڈیٹا کی جانچ ہو رہی ہے...")
+                            }
+                        } else {
+                            val stats = classStatsForDeletion
+                            if (stats != null && (stats.attendanceSessionsCount > 0 || stats.testsCount > 0)) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFFEF2F2),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text(
+                                            text = "⚠️ تاریخی ڈیٹا کا تحفظ (Data Protection):",
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = Color(0xFF991B1B)
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "اس کلاس میں ${stats.attendanceSessionsCount} حاضری کے سیشنز (${stats.attendanceRecordsCount} حاضری ریکارڈز) اور ${stats.testsCount} ٹیسٹ رزلٹس موجود ہیں۔",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFF991B1B)
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "سرکاری کالج ریکارڈ کی حفاظت کے تحت یہ کلاس مکمل ڈیلیٹ نہیں کی جا سکتی۔ یہ کلاس آرکائیو رہے گی تاکہ رپورٹس میں اس کا تاریخی ریکارڈ دستیاب رہے۔",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFF7F1D1D)
+                                        )
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = "اس کلاس میں کوئی حاضری یا ٹیسٹ ریکارڈ موجود نہیں ہے۔ کیا آپ واقعی اسے ہمیشہ کے لیے حذف کرنا چاہتے ہیں؟",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    val stats = classStatsForDeletion
+                    val canDeletePermanently = stats != null && stats.attendanceSessionsCount == 0 && stats.testsCount == 0
+                    if (canDeletePermanently) {
+                        Button(
+                            onClick = {
+                                viewModel.deleteClassPermanently(cls.classId)
+                                classToDelete = null
+                                classStatsForDeletion = null
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("مکمل حذف کریں")
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                classToDelete = null
+                                classStatsForDeletion = null
+                            }
+                        ) {
+                            Text("سمجھ گیا (Ok)")
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        classToDelete = null
+                        classStatsForDeletion = null
+                    }) {
+                        Text("بند کریں")
+                    }
+                }
+            )
+        }
     }
 }
 
 @Composable
 fun ClassManagementCard(
     classEntity: ClassEntity,
+    isArchived: Boolean,
     viewModel: CollegeViewModel,
     onTakeAttendance: () -> Unit,
     onAddTest: () -> Unit,
     onManageStudents: () -> Unit,
-    onRename: () -> Unit
+    onRename: () -> Unit,
+    onArchive: () -> Unit,
+    onRestore: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val activeMemberships by viewModel.repository.getActiveMemberships(classEntity.classId).collectAsStateWithLifecycle(emptyList())
 
@@ -255,7 +491,9 @@ fun ClassManagementCard(
             .fillMaxWidth()
             .testTag("class_card_${classEntity.classId}"),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isArchived) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f) else MaterialTheme.colorScheme.surface
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -271,16 +509,31 @@ fun ClassManagementCard(
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        IconButton(
-                            onClick = onRename,
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Rename Class",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
+                        if (!isArchived) {
+                            IconButton(
+                                onClick = onRename,
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Rename Class",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = CrimsonLight
+                            ) {
+                                Text(
+                                    text = "آرکائیو شدہ",
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = CrimsonAbsent
+                                )
+                            }
                         }
                     }
                     Text(
@@ -322,30 +575,67 @@ fun ClassManagementCard(
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = onManageStudents,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Text("طلبہ کی فہرست", style = MaterialTheme.typography.labelMedium)
-                    }
+                if (isArchived) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = onRestore,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("بحال کریں", style = MaterialTheme.typography.labelMedium)
+                        }
 
-                    OutlinedButton(
-                        onClick = onAddTest,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Text("ٹیسٹ / رزلٹ", style = MaterialTheme.typography.labelMedium)
+                        Button(
+                            onClick = onDelete,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("حذف کریں", style = MaterialTheme.typography.labelMedium)
+                        }
                     }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        IconButton(
+                            onClick = onArchive,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Archive,
+                                contentDescription = "Archive Class",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
 
-                    Button(
-                        onClick = onTakeAttendance,
-                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPresent),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text("حاضری", style = MaterialTheme.typography.labelMedium)
+                        OutlinedButton(
+                            onClick = onManageStudents,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Text("طلبہ", style = MaterialTheme.typography.labelMedium)
+                        }
+
+                        OutlinedButton(
+                            onClick = onAddTest,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Text("ٹیسٹ", style = MaterialTheme.typography.labelMedium)
+                        }
+
+                        Button(
+                            onClick = onTakeAttendance,
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPresent),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text("حاضری", style = MaterialTheme.typography.labelMedium)
+                        }
                     }
                 }
             }
