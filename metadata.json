@@ -1,0 +1,6 @@
+{
+  "name": "College Attendance",
+  "description": "Punjab HSSC & BISE Multan College Academic, Attendance, Nominal Roll, Test Results, and Parent Communication Management System",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
