@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -48,8 +49,10 @@ import com.example.ui.screens.ClassesScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.NominalRollScreen
 import com.example.ui.screens.ParentCommunicationScreen
+import com.example.ui.screens.ProfessorSetupScreen
 import com.example.ui.screens.ReportsScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.SplashScreen
 import com.example.ui.screens.TestsScreen
 import com.example.ui.theme.CollegeAttendanceTheme
 import com.example.ui.viewmodel.CollegeViewModel
@@ -71,7 +74,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             CollegeAttendanceTheme {
-                CollegeAttendanceApp()
+                var showSplash by rememberSaveable { mutableStateOf(true) }
+                if (showSplash) {
+                    SplashScreen(
+                        onSplashFinished = { showSplash = false }
+                    )
+                } else {
+                    CollegeAttendanceApp()
+                }
             }
         }
     }
@@ -84,6 +94,8 @@ fun CollegeAttendanceApp() {
     val snackbarHostState = remember { SnackbarHostState() }
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
     val validationIssues by viewModel.validationIssues.collectAsStateWithLifecycle()
+    val isSetupCompleted by viewModel.isSetupCompleted.collectAsStateWithLifecycle()
+    val showSetupFlow by viewModel.showSetupFlow.collectAsStateWithLifecycle()
 
     LaunchedEffect(snackbarMessage) {
         snackbarMessage?.let { msg ->
@@ -92,12 +104,28 @@ fun CollegeAttendanceApp() {
         }
     }
 
-    var currentDestination by remember { mutableStateOf<AppDestination>(AppDestination.Dashboard) }
+    var currentDestination by remember { mutableStateOf<AppDestination>(AppDestination.Attendance) }
     var attendancePreselectedClassId by remember { mutableStateOf<String?>(null) }
     var messagingClassId by remember { mutableStateOf<String?>(null) }
     var messagingDate by remember { mutableStateOf<String?>(null) }
     var messagingMissedPeriods by remember { mutableIntStateOf(1) }
     var testPreselectedClassId by remember { mutableStateOf<String?>(null) }
+
+    // First Launch or Professor Setup Flow (Rule #1, #2, #5, #6, #7)
+    if (!isSetupCompleted || showSetupFlow) {
+        ProfessorSetupScreen(
+            viewModel = viewModel,
+            isEditMode = isSetupCompleted && showSetupFlow,
+            onSetupCompleted = { classId ->
+                attendancePreselectedClassId = classId
+                currentDestination = AppDestination.Attendance // Immediately start Today's Attendance!
+            },
+            onCancel = if (isSetupCompleted && showSetupFlow) {
+                { viewModel.closeSetupFlow() }
+            } else null
+        )
+        return
+    }
 
     val bottomNavItems = listOf(
         AppDestination.Dashboard,
@@ -220,6 +248,15 @@ fun CollegeAttendanceApp() {
                         },
                         onNavigateToReports = {
                             currentDestination = AppDestination.Reports
+                        },
+                        onNavigateToTests = {
+                            currentDestination = AppDestination.Tests
+                        },
+                        onNavigateToMessaging = {
+                            currentDestination = AppDestination.ParentMessaging
+                        },
+                        onNavigateToSettings = {
+                            currentDestination = AppDestination.Settings
                         }
                     )
                 }

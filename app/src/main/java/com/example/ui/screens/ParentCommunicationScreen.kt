@@ -69,7 +69,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.InitialSeedData
 import com.example.data.model.ClassEntity
 import com.example.data.model.StudentEntity
-import com.example.ui.components.CommunicationHelper
+import com.example.ui.components.NotificationType
+import com.example.ui.components.ParentNotificationDialog
+import com.example.util.CommunicationHelper
+import com.example.util.ParentNotificationHelper
+import com.example.util.StudentMonthlyAttendanceStats
+import com.example.ui.theme.AmberLeave
+import com.example.ui.theme.AmberLight
 import com.example.ui.theme.CrimsonAbsent
 import com.example.ui.theme.CrimsonLight
 import com.example.ui.theme.EmeraldLight
@@ -110,7 +116,14 @@ fun ParentCommunicationScreen(
     var editableTemplate by remember { mutableStateOf(currentUser?.smsTemplate ?: InitialSeedData.defaultUser.smsTemplate) }
 
     // Show Message Preview Modal
-    var previewStudent by remember { mutableStateOf<StudentEntity?>(null) }
+    var studentForNotificationDialog by remember { mutableStateOf<StudentEntity?>(null) }
+    var generatedNotificationMessage by remember { mutableStateOf("") }
+    var isGeneratingMessage by remember { mutableStateOf(false) }
+
+    // Bulk Review Dialog
+    var showBulkReviewDialog by remember { mutableStateOf(false) }
+    var bulkPreparedMessages by remember { mutableStateOf<List<Pair<StudentEntity, String>>>(emptyList()) }
+    var studentStatsMap by remember { mutableStateOf<Map<String, StudentMonthlyAttendanceStats>>(emptyMap()) }
 
     LaunchedEffect(classes, targetClassId) {
         if (classes.isNotEmpty()) {
@@ -128,11 +141,10 @@ fun ParentCommunicationScreen(
         coroutineScope.launch {
             // Find existing session for this class & date
             val session = viewModel.repository.findExistingSession(cls.classId, effectiveDate)
-            if (session != null) {
+            val students = if (session != null) {
                 val records = viewModel.repository.getRecordsForSessionDirect(session.sessionId)
                 val absentRecordIds = records.filter { it.status == "Absent" }.map { it.studentId }.toSet()
-                val students = viewModel.repository.getStudentsByIds(absentRecordIds.toList())
-                absentStudents = students
+                viewModel.repository.getStudentsByIds(absentRecordIds.toList())
             } else {
                 // If no session found yet, check all class students
                 val allStudents = viewModel.repository.getStudentsForClassCreation(
@@ -143,8 +155,21 @@ fun ParentCommunicationScreen(
                     subjectType = cls.subjectType,
                     academicYearId = cls.academicYearId
                 )
-                absentStudents = allStudents.take(2) // Sample demonstration
+                allStudents.take(2) // Sample demonstration
             }
+            absentStudents = students
+
+            // Compute performance & attendance stats for each absent student
+            val stats = mutableMapOf<String, StudentMonthlyAttendanceStats>()
+            students.forEach { s ->
+                stats[s.studentId] = viewModel.repository.getStudentAttendanceStats(
+                    studentId = s.studentId,
+                    classId = cls.classId,
+                    date = effectiveDate,
+                    missedPeriodsToday = missedPeriods
+                )
+            }
+            studentStatsMap = stats
             isLoading = false
         }
     }
@@ -221,43 +246,37 @@ fun ParentCommunicationScreen(
                         if (absentStudents.isNotEmpty()) {
                             Button(
                                 onClick = {
-                                    // Sequentially open SMS or send batch
-                                    val user = currentUser ?: InitialSeedData.defaultUser
-                                    val cls = selectedClass
-                                    absentStudents.forEachIndexed { idx, s ->
-                                        val text = viewModel.repository.formatSmsMessage(
-                                            template = user.smsTemplate,
-                                            student = s,
-                                            date = effectiveDate,
-                                            missedPeriods = missedPeriods,
-                                            className = cls?.level ?: "First Year",
-                                            section = cls?.section ?: "B",
-                                            subject = cls?.subjectName ?: "Islamic Studies",
-                                            teacherName = user.name,
-                                            designation = user.designation,
-                                            collegeName = user.college
-                                        )
-                                        viewModel.logSentMessage(s, text, "Draft/Prepared")
-                                        messageStatuses[s.studentId] = "Prepared"
-                                    }
-                                    Toast.makeText(context, "${absentStudents.size} پیغامات تیار ہو گئے ہیں!", Toast.LENGTH_SHORT).show()
-                                    // Open first absent student in composer
-                                    val firstStudent = absentStudents.first()
-                                    val firstText = viewModel.repository.formatSmsMessage(
-                                        template = user.smsTemplate,
-                                        student = firstStudent,
-                                        date = effectiveDate,
-                                        missedPeriods = missedPeriods,
-                                        className = cls?.level ?: "First Year",
-                                        section = cls?.section ?: "B",
-                                        subject = cls?.subjectName ?: "Islamic Studies",
-                                        teacherName = user.name,
-                                        designation = user.designation,
-                                        collegeName = user.college
-                                    )
-                                    CommunicationHelper.openSmsComposer(context, firstStudent.phone, firstText) { status ->
-                                        messageStatuses[firstStudent.studentId] = status
-                                        viewModel.logSentMessage(firstStudent, firstText, status)
+                                    coroutineScope.launch {
+                                        isLoading = true
+                                        val user = currentUser ?: InitialSeedData.defaultUser
+                                        val dept = ParentNotificationHelper.resolveDepartment(user.department, selectedClass?.subjectName, user.defaultSubject)
+                                        val clg = user.college.ifBlank { ParentNotificationHelper.DEFAULT_COLLEGE_NAME }
+
+                                        val prepared = absentStudents.map { s ->
+                                            val stats = viewModel.repository.getStudentAttendanceStats(
+                                                studentId = s.studentId,
+                                                classId = selectedClass?.classId ?: "",
+                                                date = effectiveDate,
+                                                missedPeriodsToday = missedPeriods
+                                            )
+                                            val msg = ParentNotificationHelper.generateAbsenceNotification(
+                                                studentName = s.name,
+                                                rollNumber = s.rollNumber,
+                                                date = effectiveDate,
+                                                missedPeriodsToday = stats.missedPeriodsToday,
+                                                monthlyPresent = stats.presentPeriods,
+                                                monthlyAbsent = stats.absentPeriods,
+                                                attendancePercentage = stats.attendancePercentage,
+                                                consecutiveAbsentDays = stats.consecutiveAbsentDays,
+                                                teacherName = user.name,
+                                                department = dept,
+                                                collegeName = clg
+                                            )
+                                            Pair(s, msg)
+                                        }
+                                        bulkPreparedMessages = prepared
+                                        showBulkReviewDialog = true
+                                        isLoading = false
                                     }
                                 },
                                 modifier = Modifier
@@ -312,42 +331,102 @@ fun ParentCommunicationScreen(
             } else {
                 items(absentStudents) { student ->
                     val status = messageStatuses[student.studentId] ?: "Draft"
-                    val user = currentUser ?: InitialSeedData.defaultUser
-                    val cls = selectedClass
-
-                    val preparedText = remember(student, user, cls, effectiveDate, missedPeriods) {
-                        viewModel.repository.formatSmsMessage(
-                            template = user.smsTemplate,
-                            student = student,
-                            date = effectiveDate,
-                            missedPeriods = missedPeriods,
-                            className = cls?.level ?: "First Year",
-                            section = cls?.section ?: "B",
-                            subject = cls?.subjectName ?: "Islamic Studies",
-                            teacherName = user.name,
-                            designation = user.designation,
-                            collegeName = user.college
-                        )
-                    }
+                    val stats = studentStatsMap[student.studentId]
 
                     AbsentStudentCommunicationCard(
                         student = student,
-                        preparedMessage = preparedText,
                         status = status,
-                        onSendSms = {
-                            CommunicationHelper.openSmsComposer(context, student.phone, preparedText) { updateStatus ->
-                                messageStatuses[student.studentId] = updateStatus
-                                viewModel.logSentMessage(student, preparedText, updateStatus)
+                        stats = stats,
+                        onOpenMessageDialog = {
+                            coroutineScope.launch {
+                                isGeneratingMessage = true
+                                val stats = viewModel.repository.getStudentAttendanceStats(
+                                    studentId = student.studentId,
+                                    classId = selectedClass?.classId ?: "",
+                                    date = effectiveDate,
+                                    missedPeriodsToday = missedPeriods
+                                )
+                                val user = currentUser ?: InitialSeedData.defaultUser
+                                val dept = ParentNotificationHelper.resolveDepartment(user.department, selectedClass?.subjectName, user.defaultSubject)
+                                val clg = user.college.ifBlank { ParentNotificationHelper.DEFAULT_COLLEGE_NAME }
+
+                                generatedNotificationMessage = ParentNotificationHelper.generateAbsenceNotification(
+                                    studentName = student.name,
+                                    rollNumber = student.rollNumber,
+                                    date = effectiveDate,
+                                    missedPeriodsToday = stats.missedPeriodsToday,
+                                    monthlyPresent = stats.presentPeriods,
+                                    monthlyAbsent = stats.absentPeriods,
+                                    attendancePercentage = stats.attendancePercentage,
+                                    consecutiveAbsentDays = stats.consecutiveAbsentDays,
+                                    teacherName = user.name,
+                                    department = dept,
+                                    collegeName = clg
+                                )
+                                studentForNotificationDialog = student
+                                isGeneratingMessage = false
                             }
                         },
                         onCallParent = {
                             CommunicationHelper.openDialer(context, student.phone)
                         },
-                        onPreview = { previewStudent = student },
+                        onSendWhatsApp = {
+                            coroutineScope.launch {
+                                val stats = viewModel.repository.getStudentAttendanceStats(
+                                    studentId = student.studentId,
+                                    classId = selectedClass?.classId ?: "",
+                                    date = effectiveDate,
+                                    missedPeriodsToday = missedPeriods
+                                )
+                                val user = currentUser ?: InitialSeedData.defaultUser
+                                val dept = ParentNotificationHelper.resolveDepartment(user.department, selectedClass?.subjectName, user.defaultSubject)
+                                val clg = user.college.ifBlank { ParentNotificationHelper.DEFAULT_COLLEGE_NAME }
+
+                                val msg = ParentNotificationHelper.generateAbsenceNotification(
+                                    studentName = student.name,
+                                    rollNumber = student.rollNumber,
+                                    date = effectiveDate,
+                                    missedPeriodsToday = stats.missedPeriodsToday,
+                                    monthlyPresent = stats.presentPeriods,
+                                    monthlyAbsent = stats.absentPeriods,
+                                    attendancePercentage = stats.attendancePercentage,
+                                    consecutiveAbsentDays = stats.consecutiveAbsentDays,
+                                    teacherName = user.name,
+                                    department = dept,
+                                    collegeName = clg
+                                )
+                                CommunicationHelper.openWhatsApp(context, student.phone, msg)
+                                messageStatuses[student.studentId] = "WhatsApp Opened"
+                                viewModel.logSentMessage(student, msg, "WhatsApp Opened")
+                            }
+                        },
                         onCopyText = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("Parent Urdu SMS", preparedText))
-                            Toast.makeText(context, "اردو میسج کاپی ہو گیا!", Toast.LENGTH_SHORT).show()
+                            coroutineScope.launch {
+                                val stats = viewModel.repository.getStudentAttendanceStats(
+                                    studentId = student.studentId,
+                                    classId = selectedClass?.classId ?: "",
+                                    date = effectiveDate,
+                                    missedPeriodsToday = missedPeriods
+                                )
+                                val user = currentUser ?: InitialSeedData.defaultUser
+                                val dept = ParentNotificationHelper.resolveDepartment(user.department, selectedClass?.subjectName, user.defaultSubject)
+                                val clg = user.college.ifBlank { ParentNotificationHelper.DEFAULT_COLLEGE_NAME }
+
+                                val msg = ParentNotificationHelper.generateAbsenceNotification(
+                                    studentName = student.name,
+                                    rollNumber = student.rollNumber,
+                                    date = effectiveDate,
+                                    missedPeriodsToday = stats.missedPeriodsToday,
+                                    monthlyPresent = stats.presentPeriods,
+                                    monthlyAbsent = stats.absentPeriods,
+                                    attendancePercentage = stats.attendancePercentage,
+                                    consecutiveAbsentDays = stats.consecutiveAbsentDays,
+                                    teacherName = user.name,
+                                    department = dept,
+                                    collegeName = clg
+                                )
+                                CommunicationHelper.copyToClipboard(context, msg, "Parent Urdu SMS")
+                            }
                         }
                     )
                 }
@@ -403,60 +482,187 @@ fun ParentCommunicationScreen(
             )
         }
 
-        // Preview Student Message Modal
-        previewStudent?.let { s ->
+        // Preview / Send Student Message Modal via ParentNotificationDialog
+        studentForNotificationDialog?.let { s ->
             val user = currentUser ?: InitialSeedData.defaultUser
-            val cls = selectedClass
-            val text = viewModel.repository.formatSmsMessage(
-                template = user.smsTemplate,
+            val dept = ParentNotificationHelper.resolveDepartment(user.department, selectedClass?.subjectName, user.defaultSubject)
+            ParentNotificationDialog(
                 student = s,
-                date = effectiveDate,
-                missedPeriods = missedPeriods,
-                className = cls?.level ?: "First Year",
-                section = cls?.section ?: "B",
-                subject = cls?.subjectName ?: "Islamic Studies",
+                notificationType = NotificationType.ABSENCE,
+                initialMessage = generatedNotificationMessage,
+                parentPhone = s.phone,
                 teacherName = user.name,
-                designation = user.designation,
-                collegeName = user.college
+                teacherDepartment = dept,
+                collegeName = user.college,
+                onDismiss = { studentForNotificationDialog = null },
+                onMessageSent = { status ->
+                    messageStatuses[s.studentId] = status
+                    viewModel.logSentMessage(s, generatedNotificationMessage, status)
+                }
             )
+        }
 
+        // Bulk Review Dialog
+        if (showBulkReviewDialog) {
             AlertDialog(
-                onDismissRequest = { previewStudent = null },
-                title = { Text("میسج کا پیش منظر (Preview)") },
+                onDismissRequest = { showBulkReviewDialog = false },
+                title = {
+                    Text(
+                        text = "تمام غیر حاضر طلبہ کے پیغامات کا جائزہ (${bulkPreparedMessages.size})",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("طالب علم: ${s.name} (رول نمبر ${s.rollNumber})", fontWeight = FontWeight.Bold)
-                        Text("فون نمبر: ${s.phone}")
-                        HorizontalDivider()
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.fillMaxWidth()
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(380.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "ہر طالب علم کا تیار کردہ پیغام نیچے دیا گیا ہے۔ آپ جائزہ لے کر انفرادی طور پر ارسال یا کاپی کر سکتے ہیں:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(
-                                text = text,
-                                modifier = Modifier.padding(12.dp),
-                                style = MaterialTheme.typography.bodySmall
-                            )
+                            items(bulkPreparedMessages) { (std, msg) ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "${std.name} (رول نمبر: ${std.rollNumber})",
+                                                fontWeight = FontWeight.Bold,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                            Text(
+                                                text = std.phone,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+
+                                        // Performance & Absence visual indicator
+                                        val stdStats = studentStatsMap[std.studentId]
+                                        if (stdStats != null) {
+                                            val (pillBg, pillFg, pillIcon, pillLabel) = when {
+                                                stdStats.attendancePercentage >= 75.0 && stdStats.consecutiveAbsentDays < 3 ->
+                                                    listOf(
+                                                        EmeraldLight,
+                                                        EmeraldPresent,
+                                                        Icons.Default.CheckCircle,
+                                                        "حاضری تسلی بخش (${stdStats.attendancePercentage.toInt()}%)"
+                                                    )
+                                                stdStats.attendancePercentage >= 60.0 && stdStats.consecutiveAbsentDays < 3 ->
+                                                    listOf(
+                                                        AmberLight,
+                                                        AmberLeave,
+                                                        Icons.Default.Warning,
+                                                        "حاضری توجہ طلب (${stdStats.attendancePercentage.toInt()}%)"
+                                                    )
+                                                else ->
+                                                    listOf(
+                                                        CrimsonLight,
+                                                        CrimsonAbsent,
+                                                        Icons.Default.Warning,
+                                                        if (stdStats.consecutiveAbsentDays >= 3)
+                                                            "مسلسل ${stdStats.consecutiveAbsentDays} دن غیر حاضر • سنگین (${stdStats.attendancePercentage.toInt()}%)"
+                                                        else
+                                                            "سنگین غیر حاضری (${stdStats.attendancePercentage.toInt()}%)"
+                                                    )
+                                            }
+
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = pillBg as Color
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(
+                                                        pillIcon as androidx.compose.ui.graphics.vector.ImageVector,
+                                                        contentDescription = null,
+                                                        tint = pillFg as Color,
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = pillLabel as String,
+                                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                        color = pillFg
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = MaterialTheme.colorScheme.surface,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                text = msg,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                modifier = Modifier.padding(8.dp)
+                                            )
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    CommunicationHelper.copyToClipboard(context, msg, "Parent Notification")
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Text("کاپی", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                            Button(
+                                                onClick = {
+                                                    CommunicationHelper.sendSms(context, std.phone, msg)
+                                                    messageStatuses[std.studentId] = "SMS Opened"
+                                                    viewModel.logSentMessage(std, msg, "SMS Opened")
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Text("ایس ایم ایس", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                            Button(
+                                                onClick = {
+                                                    CommunicationHelper.openWhatsApp(context, std.phone, msg)
+                                                    messageStatuses[std.studentId] = "WhatsApp Opened"
+                                                    viewModel.logSentMessage(std, msg, "WhatsApp Opened")
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Text("واٹس ایپ", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 },
                 confirmButton = {
-                    Button(
-                        onClick = {
-                            CommunicationHelper.openSmsComposer(context, s.phone, text) { st ->
-                                messageStatuses[s.studentId] = st
-                                viewModel.logSentMessage(s, text, st)
-                            }
-                            previewStudent = null
-                        }
-                    ) {
-                        Text("ایس ایم ایس بھیجیں")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { previewStudent = null }) {
-                        Text("بند کریں")
+                    Button(onClick = { showBulkReviewDialog = false }) {
+                        Text("مکمل / بند کریں")
                     }
                 }
             )
@@ -467,11 +673,11 @@ fun ParentCommunicationScreen(
 @Composable
 fun AbsentStudentCommunicationCard(
     student: StudentEntity,
-    preparedMessage: String,
     status: String,
-    onSendSms: () -> Unit,
+    stats: StudentMonthlyAttendanceStats? = null,
+    onOpenMessageDialog: () -> Unit,
     onCallParent: () -> Unit,
-    onPreview: () -> Unit,
+    onSendWhatsApp: () -> Unit,
     onCopyText: () -> Unit
 ) {
     Card(
@@ -517,7 +723,7 @@ fun AbsentStudentCommunicationCard(
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = when (status) {
-                        "Opened in SMS Composer" -> EmeraldLight
+                        "Opened in SMS Composer", "SMS Opened", "WhatsApp Opened" -> EmeraldLight
                         else -> MaterialTheme.colorScheme.surfaceVariant
                     }
                 ) {
@@ -526,41 +732,110 @@ fun AbsentStudentCommunicationCard(
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                         style = MaterialTheme.typography.labelSmall,
                         color = when (status) {
-                            "Opened in SMS Composer" -> EmeraldPresent
+                            "Opened in SMS Composer", "SMS Opened", "WhatsApp Opened" -> EmeraldPresent
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         }
                     )
                 }
             }
 
+            // Performance & Absence Visual Indicator (Green for good performance, Red for high absences)
+            if (stats != null) {
+                val (badgeBg, badgeFg, badgeIcon, badgeLabel) = when {
+                    stats.attendancePercentage >= 75.0 && stats.consecutiveAbsentDays < 3 ->
+                        listOf(
+                            EmeraldLight,
+                            EmeraldPresent,
+                            Icons.Default.CheckCircle,
+                            "تسلی بخش حاضری (${stats.attendancePercentage.toInt()}%)"
+                        )
+                    stats.attendancePercentage >= 60.0 && stats.consecutiveAbsentDays < 3 ->
+                        listOf(
+                            AmberLight,
+                            AmberLeave,
+                            Icons.Default.Warning,
+                            "توجہ طلب حاضری (${stats.attendancePercentage.toInt()}%)"
+                        )
+                    else ->
+                        listOf(
+                            CrimsonLight,
+                            CrimsonAbsent,
+                            Icons.Default.Warning,
+                            if (stats.consecutiveAbsentDays >= 3)
+                                "مسلسل ${stats.consecutiveAbsentDays} دن غیر حاضر • سنگین خطرہ (${stats.attendancePercentage.toInt()}%)"
+                            else
+                                "زیادہ غیر حاضری (${stats.attendancePercentage.toInt()}%)"
+                        )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = badgeBg as Color,
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            badgeIcon as androidx.compose.ui.graphics.vector.ImageVector,
+                            contentDescription = null,
+                            tint = badgeFg as Color,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = badgeLabel as String,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = badgeFg
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "کل حاضر: ${stats.presentPeriods} • کل غیر حاضر: ${stats.absentPeriods}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Action Buttons: Message Parent, Call Parent, Preview, Copy
+            // Action Buttons: والدین کو پیغام بھیجیں (Primary), WhatsApp, Call, Copy
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Button(
-                    onClick = onSendSms,
+                    onClick = onOpenMessageDialog,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1.3f),
+                    modifier = Modifier.weight(1.4f),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("میسج والد", style = MaterialTheme.typography.labelMedium)
+                    Text("والدین کو پیغام بھیجیں", style = MaterialTheme.typography.labelSmall)
+                }
+
+                Button(
+                    onClick = onSendWhatsApp,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "WhatsApp", modifier = Modifier.size(16.dp), tint = Color.White)
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Text("واٹس ایپ", style = MaterialTheme.typography.labelSmall, color = Color.White)
                 }
 
                 OutlinedButton(
                     onClick = onCallParent,
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(16.dp), tint = EmeraldPresent)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("کال کریں", style = MaterialTheme.typography.labelMedium)
                 }
 
                 IconButton(

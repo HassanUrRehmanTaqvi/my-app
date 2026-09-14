@@ -5,6 +5,24 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+@Entity(
+    tableName = "teachers",
+    indices = [
+        Index(value = ["teacherId"], unique = true),
+        Index(value = ["role"]),
+        Index(value = ["department"])
+    ]
+)
+data class TeacherEntity(
+    @PrimaryKey val teacherId: String,
+    val name: String,
+    val designation: String,
+    val department: String,
+    val role: String = "teacher", // "admin" or "teacher"
+    val isRegistered: String = "No",
+    val registeredEmail: String = ""
+)
+
 @Entity(tableName = "users")
 data class UserEntity(
     @PrimaryKey val userId: String,
@@ -14,7 +32,10 @@ data class UserEntity(
     val designation: String,
     val defaultSubject: String,
     val smsTemplate: String,
-    val isCurrent: Boolean = true
+    val isCurrent: Boolean = true,
+    val role: String = "teacher", // "admin" or "teacher"
+    val department: String = "",
+    val teacherId: String = ""
 )
 
 @Entity(
@@ -34,6 +55,8 @@ data class AcademicYearEntity(
         Index(value = ["studentId"], unique = true),
         Index(value = ["academicYearId", "className"]),
         Index(value = ["academicYearId", "rollNumber"]),
+        Index(value = ["session"]),
+        Index(value = ["groupName"]),
         Index(value = ["ownerId"])
     ]
 )
@@ -43,10 +66,16 @@ data class StudentEntity(
     val name: String,
     val fatherName: String,
     val phone: String,
+    val guardianPhone: String = "",
+    val session: String = "2026–2028", // e.g. "2026–2028", "2025–2027"
     val className: String, // "First Year" or "Second Year"
     val section: String = "A", // Default section if assigned
-    val groupName: String, // e.g. "ICS Physics", "Arts", "Pre-Medical", "IT Arts"
-    val electiveSubjectsRaw: String, // e.g. "Psychology, Civics, Islamic Studies Elective"
+    val groupName: String, // e.g. "میڈیکل", "نان میڈیکل", "آئی سی ایس فزکس", "آرٹس", etc.
+    val electiveSubjectsRaw: String, // e.g. "حیاتیات (بائیولوجی), کیمسٹری, فزکس"
+    val subject1: String = "",
+    val subject2: String = "",
+    val subject3: String = "",
+    val marks: Int? = null,
     val academicYearId: String,
     val ownerId: String,
     val status: String = "Active", // "Active", "Archived", "Transferred"
@@ -94,8 +123,23 @@ data class ClassEntity(
 
 @Entity(
     tableName = "class_memberships",
+    foreignKeys = [
+        ForeignKey(
+            entity = ClassEntity::class,
+            parentColumns = ["classId"],
+            childColumns = ["classId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = StudentEntity::class,
+            parentColumns = ["studentId"],
+            childColumns = ["studentId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
     indices = [
         Index(value = ["classId", "studentId"]),
+        Index(value = ["classId"]),
         Index(value = ["studentId"]),
         Index(value = ["status"])
     ]
@@ -112,8 +156,17 @@ data class ClassMembershipEntity(
 
 @Entity(
     tableName = "attendance_sessions",
+    foreignKeys = [
+        ForeignKey(
+            entity = ClassEntity::class,
+            parentColumns = ["classId"],
+            childColumns = ["classId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
     indices = [
-        Index(value = ["classId", "date"]),
+        Index(value = ["classId", "date"], unique = true),
+        Index(value = ["classId"]),
         Index(value = ["ownerId"])
     ]
 )
@@ -131,8 +184,23 @@ data class AttendanceSessionEntity(
 
 @Entity(
     tableName = "attendance_records",
+    foreignKeys = [
+        ForeignKey(
+            entity = AttendanceSessionEntity::class,
+            parentColumns = ["sessionId"],
+            childColumns = ["sessionId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = StudentEntity::class,
+            parentColumns = ["studentId"],
+            childColumns = ["studentId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
     indices = [
         Index(value = ["sessionId", "studentId", "period"], unique = true),
+        Index(value = ["sessionId"]),
         Index(value = ["studentId"]),
         Index(value = ["status"])
     ]
@@ -147,8 +215,17 @@ data class AttendanceRecordEntity(
 
 @Entity(
     tableName = "tests",
+    foreignKeys = [
+        ForeignKey(
+            entity = ClassEntity::class,
+            parentColumns = ["classId"],
+            childColumns = ["classId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
     indices = [
         Index(value = ["classId", "date"]),
+        Index(value = ["classId"]),
         Index(value = ["ownerId"])
     ]
 )
@@ -165,8 +242,23 @@ data class TestEntity(
 
 @Entity(
     tableName = "test_results",
+    foreignKeys = [
+        ForeignKey(
+            entity = TestEntity::class,
+            parentColumns = ["testId"],
+            childColumns = ["testId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = StudentEntity::class,
+            parentColumns = ["studentId"],
+            childColumns = ["studentId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
     indices = [
         Index(value = ["testId", "studentId"], unique = true),
+        Index(value = ["testId"]),
         Index(value = ["studentId"])
     ]
 )
@@ -176,7 +268,9 @@ data class TestResultEntity(
     val studentId: String,
     val obtainedMarks: Double,
     val percentage: Double,
-    val status: String // "Passed", "Failed"
+    val status: String, // "Passed", "Failed"
+    val grade: String = "A", // "A+", "A", "B", "C", "D", "E", "F"
+    val rank: Int = 0 // Position in class test (1, 2, 3...)
 )
 
 @Entity(
@@ -198,3 +292,39 @@ data class MessageLogEntity(
     val timestamp: Long = System.currentTimeMillis(),
     val ownerId: String
 )
+
+@Entity(
+    tableName = "audit_logs",
+    indices = [
+        Index(value = ["timestamp"]),
+        Index(value = ["ownerId"])
+    ]
+)
+data class AuditLogEntity(
+    @PrimaryKey val logId: String,
+    val actionType: String, // e.g. "ATTENDANCE_TAKEN", "TEST_CREATED", "STUDENT_IMPORTED", "BACKUP_EXPORTED", "BACKUP_RESTORED"
+    val summary: String,
+    val details: String = "",
+    val timestamp: Long = System.currentTimeMillis(),
+    val ownerId: String
+)
+
+@Entity(
+    tableName = "sync_queue",
+    indices = [
+        Index(value = ["status"]),
+        Index(value = ["timestamp"]),
+        Index(value = ["ownerId"])
+    ]
+)
+data class SyncQueueEntity(
+    @PrimaryKey val syncId: String,
+    val entityType: String, // "ATTENDANCE", "STUDENT", "TEST", "RESULT"
+    val entityId: String,
+    val operation: String, // "INSERT", "UPDATE", "DELETE"
+    val payloadJson: String = "",
+    val status: String = "Pending", // "Pending", "Synced", "Failed"
+    val timestamp: Long = System.currentTimeMillis(),
+    val ownerId: String
+)
+

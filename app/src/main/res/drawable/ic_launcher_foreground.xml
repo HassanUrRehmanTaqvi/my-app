@@ -1,44 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <!-- Graduation Cap Top (Mortarboard) -->
-    <path
-        android:pathData="M54,26 L78,37 L54,48 L30,37 Z"
-        android:fillColor="#FFFFFF" />
-    <!-- Graduation Cap Skullcap under -->
-    <path
-        android:pathData="M39,42.5 L39,52 C39,57 45.5,61 54,61 C62.5,61 69,57 69,52 L69,42.5 L54,49.5 Z"
-        android:fillColor="#E2E8F0" />
-    <!-- Cap Tassel -->
-    <path
-        android:pathData="M72,39.5 L72,55 C70.5,56 70.5,59 72,60 C73.5,59 73.5,56 72,55"
-        android:strokeWidth="2"
-        android:strokeColor="#F6AD55"
-        android:fillColor="#F6AD55" />
-
-    <!-- Open Register / Book at Bottom -->
-    <path
-        android:pathData="M32,65 C41,60 50,62 54,66 C58,62 67,60 76,65 L76,82 C67,77 58,79 54,83 C50,79 41,77 32,82 Z"
-        android:fillColor="#FFFFFF" />
-    <path
-        android:pathData="M54,66 L54,83"
-        android:strokeWidth="2"
-        android:strokeColor="#CBD5E0" />
-    <!-- Checkmark indicating attendance marked -->
-    <path
-        android:pathData="M60,70 L65,75 L73,67"
-        android:strokeWidth="2.5"
-        android:strokeColor="#38A169"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:fillColor="#00000000" />
-    <!-- Register lines on left page -->
-    <path
-        android:pathData="M37,71 L49,71 M37,75 L49,75"
-        android:strokeWidth="1.5"
-        android:strokeColor="#A0AEC0"
-        android:strokeLineCap="round" />
-</vector>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="55dp"
+        android:height="66dp"
+        android:drawable="@drawable/ic_college_logo"
+        android:gravity="center" />
+</layer-list>

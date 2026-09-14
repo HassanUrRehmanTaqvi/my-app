@@ -1,6 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
@@ -8,17 +9,22 @@ import com.example.data.InitialSeedData
 import com.example.data.NominalRollValidator
 import com.example.data.model.AttendanceRecordEntity
 import com.example.data.model.AttendanceSessionEntity
+import com.example.data.model.AuditLogEntity
 import com.example.data.model.ClassEntity
 import com.example.data.model.ClassMembershipEntity
 import com.example.data.model.MessageLogEntity
 import com.example.data.model.StudentEntity
 import com.example.data.model.SubjectEntity
+import com.example.data.model.SyncQueueEntity
+import com.example.data.model.TeacherEntity
 import com.example.data.model.TestEntity
 import com.example.data.model.TestResultEntity
 import com.example.data.model.UserEntity
 import com.example.repository.CollegeRepository
 import com.example.util.CsvImportSummary
+import com.example.util.GoogleCalendarHelper
 import com.example.util.ParsedCsvRow
+import com.example.util.SessionHelper
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -30,6 +36,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 data class AttendanceSummaryData(
     val totalStudents: Int = 0,
@@ -43,12 +50,15 @@ data class AttendanceSummaryData(
 class CollegeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
-    val repository = CollegeRepository(db)
+    val repository = CollegeRepository(db, application)
 
     val currentUser: StateFlow<UserEntity?> = repository.currentUserFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val allUsers: StateFlow<List<UserEntity>> = repository.allUsersFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allTeachers: StateFlow<List<TeacherEntity>> = repository.getAllTeachersFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _currentOwnerId = MutableStateFlow(InitialSeedData.DEFAULT_USER_ID)
@@ -57,15 +67,43 @@ class CollegeViewModel(application: Application) : AndroidViewModel(application)
     private val _currentYearId = MutableStateFlow(InitialSeedData.DEFAULT_YEAR_ID)
     val currentYearId: StateFlow<String> = _currentYearId.asStateFlow()
 
+    // Professor Setup Flow State
+    private val _isSetupCompleted = MutableStateFlow(
+        com.example.util.ProfessorSetupPreferences.isSetupCompleted(application)
+    )
+    val isSetupCompleted: StateFlow<Boolean> = _isSetupCompleted.asStateFlow()
+
+    private val _showSetupFlow = MutableStateFlow(false)
+    val showSetupFlow: StateFlow<Boolean> = _showSetupFlow.asStateFlow()
+
     private val _validationIssues = MutableStateFlow<List<NominalRollValidator.ValidationIssue>>(emptyList())
     val validationIssues: StateFlow<List<NominalRollValidator.ValidationIssue>> = _validationIssues.asStateFlow()
 
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     val snackbarMessage: StateFlow<String?> = _snackbarMessage.asStateFlow()
 
+    // Session Management (e.g. 2026–2028, 2025–2027)
+    private val _activeSession = MutableStateFlow(SessionHelper.DEFAULT_ACTIVE_SESSION)
+    val activeSession: StateFlow<String> = _activeSession.asStateFlow()
+
+    // Offline-First Sync State
+    private val _syncStatus = MutableStateFlow("ہم آہنگ (Synced)")
+    val syncStatus: StateFlow<String> = _syncStatus.asStateFlow()
+
+    private val _lastSyncTime = MutableStateFlow(
+        SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
+    )
+    val lastSyncTime: StateFlow<String> = _lastSyncTime.asStateFlow()
+
+    val pendingSyncCount: Flow<Int>
+        get() = repository.getPendingSyncCountFlow(_currentOwnerId.value)
+
+    val auditLogs: Flow<List<AuditLogEntity>>
+        get() = repository.getAuditLogs(_currentOwnerId.value)
+
     init {
         viewModelScope.launch {
-            repository.initializeSeedDataIfNeeded()
+            repository.initializeSeedDataIfNeeded(application)
             currentUser.collect { user ->
                 if (user != null) {
                     _currentOwnerId.value = user.userId
@@ -74,6 +112,22 @@ class CollegeViewModel(application: Application) : AndroidViewModel(application)
             }
         }
     }
+
+    fun claimTeacherProfile(teacherId: String, email: String) {
+        viewModelScope.launch {
+            repository.claimTeacherProfile(teacherId, email)
+            _snackbarMessage.value = "پروفائل کامیابی سے منسلک کر دی گئی!"
+        }
+    }
+
+    fun updateTeacher(teacher: TeacherEntity) {
+        viewModelScope.launch {
+            repository.updateTeacher(teacher)
+            _snackbarMessage.value = "استاد کا ریکارڈ اپ ڈیٹ ہو گیا!"
+        }
+    }
+
+    fun getDistinctGroups(): Flow<List<String>> = repository.getDistinctGroups(_currentOwnerId.value)
 
     fun clearSnackbarMessage() {
         _snackbarMessage.value = null
@@ -345,6 +399,44 @@ class CollegeViewModel(application: Application) : AndroidViewModel(application)
         return repository.getClassStats(classId)
     }
 
+    // Session Selection
+    fun setActiveSession(session: String) {
+        _activeSession.value = session
+        _snackbarMessage.value = "فعال تعلیمی سیشن تبدیل ہو گیا: $session"
+    }
+
+    // Offline Sync Action
+    fun syncNow() {
+        viewModelScope.launch {
+            _syncStatus.value = "ہم آہنگ کیا جا رہا ہے (Syncing...)"
+            kotlinx.coroutines.delay(800) // Visual feedback
+            repository.markAllSynced(_currentOwnerId.value)
+            _syncStatus.value = "ہم آہنگ (Synced)"
+            _lastSyncTime.value = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
+            _snackbarMessage.value = "تمام ریکارڈز کامیابی سے کلاؤڈ/ڈرائیو کیو کے ساتھ ہم آہنگ ہو گئے!"
+        }
+    }
+
+    fun logAudit(actionType: String, summary: String, details: String = "") {
+        viewModelScope.launch {
+            repository.logAudit(_currentOwnerId.value, actionType, summary, details)
+        }
+    }
+
+    fun scheduleMonthEndReminder(context: Context) {
+        try {
+            val user = currentUser.value
+            val college = user?.college ?: "گورنمنٹ ایسوسی ایٹ کالج مخدوم رشید ملتان"
+            val teacher = user?.name ?: "پروفیسر حسن الرحمن تقویٰ"
+            val intent = GoogleCalendarHelper.createMonthEndReminderIntent(college, teacher)
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            _snackbarMessage.value = "کیلنڈر میں ماہانہ یاددہانی شیڈول کرنے کی درخواست کھولی جا رہی ہے"
+        } catch (e: Exception) {
+            _snackbarMessage.value = "کیلنڈر ایپلیکیشن دستیاب نہیں ہے"
+        }
+    }
+
     // CSV Bulk Import
     fun importCsvStudents(
         parsedRows: List<ParsedCsvRow>,
@@ -364,5 +456,81 @@ class CollegeViewModel(application: Application) : AndroidViewModel(application)
             _snackbarMessage.value = summary.message
             onComplete(summary)
         }
+    }
+
+    // Professor Setup Actions
+    fun openSetupFlow() {
+        _showSetupFlow.value = true
+    }
+
+    fun closeSetupFlow() {
+        _showSetupFlow.value = false
+    }
+
+    fun completeProfessorSetup(
+        teacher: TeacherEntity,
+        className: String,
+        section: String,
+        groupName: String,
+        selectedStudents: List<StudentEntity>,
+        selectionMode: String,
+        onComplete: (classId: String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val classId = repository.setupProfessorAccount(
+                teacher = teacher,
+                className = className,
+                section = section,
+                groupName = groupName,
+                selectedStudents = selectedStudents,
+                selectionMode = selectionMode
+            )
+            val ctx = getApplication<Application>()
+            com.example.util.ProfessorSetupPreferences.setSetupCompleted(ctx, true)
+            com.example.util.ProfessorSetupPreferences.setTeacherId(ctx, teacher.teacherId)
+            com.example.util.ProfessorSetupPreferences.setTeacherName(ctx, teacher.name)
+            com.example.util.ProfessorSetupPreferences.setClassId(ctx, classId)
+            com.example.util.ProfessorSetupPreferences.setClassName(ctx, className)
+            com.example.util.ProfessorSetupPreferences.setClassLevel(ctx, className)
+            com.example.util.ProfessorSetupPreferences.setGroupName(ctx, groupName)
+            com.example.util.ProfessorSetupPreferences.setSelectionMode(ctx, selectionMode)
+            com.example.util.ProfessorSetupPreferences.setStudentCount(ctx, selectedStudents.size)
+
+            _isSetupCompleted.value = true
+            _showSetupFlow.value = false
+            _snackbarMessage.value = "پروفیسر اور کلاس کا سیٹ اپ کامیابی سے مکمل ہو گیا!"
+            onComplete(classId)
+        }
+    }
+
+    fun updateClassStudentSelection(
+        classId: String,
+        selectedStudents: List<StudentEntity>,
+        selectionMode: String,
+        onComplete: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            repository.updateClassStudentSelection(classId, selectedStudents)
+            val ctx = getApplication<Application>()
+            com.example.util.ProfessorSetupPreferences.setSelectionMode(ctx, selectionMode)
+            com.example.util.ProfessorSetupPreferences.setStudentCount(ctx, selectedStudents.size)
+            _snackbarMessage.value = "طلبہ کی فہرست کامیابی سے تبدیل ہو گئی! (${selectedStudents.size} طلبہ)"
+            onComplete()
+        }
+    }
+
+    fun resetProfessorSetup() {
+        val ctx = getApplication<Application>()
+        com.example.util.ProfessorSetupPreferences.resetSetup(ctx)
+        _isSetupCompleted.value = false
+        _showSetupFlow.value = true
+        _snackbarMessage.value = "سیٹ اپ ری سیٹ کر دیا گیا۔ نیا پروفیسر منتخب کریں۔"
+    }
+
+    suspend fun getAvailableStudentsForClass(
+        className: String,
+        groupName: String
+    ): List<StudentEntity> {
+        return repository.getAvailableStudentsForClass(className, groupName)
     }
 }

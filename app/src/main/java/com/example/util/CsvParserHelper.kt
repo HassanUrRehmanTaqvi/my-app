@@ -5,7 +5,6 @@ import java.io.BufferedReader
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
-import java.util.UUID
 
 data class ParsedCsvRow(
     val rowNumber: Int,
@@ -13,8 +12,10 @@ data class ParsedCsvRow(
     val name: String,
     val fatherName: String,
     val phone: String,
+    val guardianPhone: String = "",
+    val session: String = "2026–2028",
     val className: String, // "First Year" or "Second Year"
-    val section: String,
+    val section: String = "A",
     val groupName: String,
     val optionalSubjects: String,
     val isValid: Boolean,
@@ -49,6 +50,18 @@ data class CsvImportSummary(
 object CsvParserHelper {
 
     /**
+     * Standard CSV Template matching college nominal roll requirements
+     */
+    fun generateCsvTemplate(): String {
+        return """Roll No,Student Name,Father Name,Session,Group,Optional Subjects,Phone,Guardian Phone
+101,محمد احمد,عبدالرحمٰن,2026–2028,Pre-Medical,Biology,03001234567,03017654321
+102,علی رضا,محمد حسین,2026–2028,ICS Physics,"Computer Science, Physics, Mathematics",03211234567,03227654321
+103,عثمان طارق,طارق محمود,2026–2028,Arts,"Psychology, Civics, Islamic Studies Elective",03331234567,03347654321
+104,حسن بلال,بلال اصغر,2025–2027,ICS Economics,"Computer Science, Economics, Mathematics",03451234567,03467654321
+105,احمد رضا,محمد انور,2026–2028,General Science,"Statistics, Economics, Mathematics",03061234567,03077654321""" + "\n"
+    }
+
+    /**
      * Parses standard CSV line respecting double quotes and commas within quotes (RFC 4180)
      */
     fun parseCsvLine(line: String, delimiter: Char = ','): List<String> {
@@ -60,7 +73,6 @@ object CsvParserHelper {
             val c = line[i]
             if (c == '"') {
                 if (inQuotes && i + 1 < line.length && line[i + 1] == '"') {
-                    // Escaped quote
                     sb.append('"')
                     i++
                 } else {
@@ -88,7 +100,6 @@ object CsvParserHelper {
         reader.forEachLine { line ->
             var cleaned = line
             if (isFirst) {
-                // Strip UTF-8 BOM if present
                 if (cleaned.startsWith("\uFEFF")) {
                     cleaned = cleaned.substring(1)
                 }
@@ -106,7 +117,8 @@ object CsvParserHelper {
      */
     fun parseCsvData(
         lines: List<String>,
-        existingStudents: List<StudentEntity>
+        existingStudents: List<StudentEntity>,
+        activeSession: String = SessionHelper.DEFAULT_ACTIVE_SESSION
     ): CsvParseResult {
         if (lines.isEmpty()) {
             return CsvParseResult(0, emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
@@ -126,16 +138,16 @@ object CsvParserHelper {
         val colIndexMap = if (hasHeaders) {
             detectColumnIndices(headerTokens)
         } else {
-            // Default expected order: Roll, Name, FatherName, Phone, Class, Section, Group, Optional Subjects
+            // Default expected order: Roll, Name, Father, Session, Group, Optional, Phone, GuardianPhone
             mapOf(
                 "roll" to 0,
                 "name" to 1,
                 "father" to 2,
-                "phone" to 3,
-                "class" to 4,
-                "section" to 5,
-                "group" to 6,
-                "optional" to 7
+                "session" to 3,
+                "group" to 4,
+                "optional" to 5,
+                "phone" to 6,
+                "guardian_phone" to 7
             )
         }
 
@@ -151,12 +163,19 @@ object CsvParserHelper {
             val rawName = getColValue(tokens, colIndexMap["name"])
             val rawFather = getColValue(tokens, colIndexMap["father"])
             val rawPhone = getColValue(tokens, colIndexMap["phone"])
+            val rawGuardianPhone = getColValue(tokens, colIndexMap["guardian_phone"])
+            val rawSession = getColValue(tokens, colIndexMap["session"])
             val rawClass = getColValue(tokens, colIndexMap["class"])
             val rawSection = getColValue(tokens, colIndexMap["section"])
             val rawGroup = getColValue(tokens, colIndexMap["group"])
             val rawOptional = getColValue(tokens, colIndexMap["optional"])
 
-            val normalizedClass = normalizeClassName(rawClass)
+            val normalizedSession = if (rawSession.isNotBlank()) rawSession.trim() else activeSession
+            val normalizedClass = if (rawClass.isNotBlank()) {
+                normalizeClassName(rawClass)
+            } else {
+                SessionHelper.calculateLevelForSession(normalizedSession, activeSession)
+            }
             val normalizedRoll = rawRoll.trim()
             val normalizedSection = if (rawSection.isNotBlank()) rawSection.trim().uppercase() else "A"
             val normalizedGroup = if (rawGroup.isNotBlank()) rawGroup.trim() else "Pre-Medical"
@@ -185,7 +204,7 @@ object CsvParserHelper {
             val existingStudent = if (normalizedRoll.isNotBlank()) {
                 existingStudents.find {
                     it.rollNumber.equals(normalizedRoll, ignoreCase = true) &&
-                            it.className.equals(normalizedClass, ignoreCase = true)
+                            (it.className.equals(normalizedClass, ignoreCase = true) || it.session.equals(normalizedSession, ignoreCase = true))
                 }
             } else null
 
@@ -199,6 +218,8 @@ object CsvParserHelper {
                     name = rawName.trim(),
                     fatherName = rawFather.trim(),
                     phone = if (rawPhone.isNotBlank()) rawPhone.trim() else "03000000000",
+                    guardianPhone = rawGuardianPhone.trim(),
+                    session = normalizedSession,
                     className = normalizedClass,
                     section = normalizedSection,
                     groupName = normalizedGroup,
@@ -233,7 +254,7 @@ object CsvParserHelper {
     private fun isHeaderRow(tokens: List<String>): Boolean {
         val keywords = listOf(
             "roll", "name", "father", "phone", "class", "section", "group", "optional",
-            "رول", "نام", "ولدیت", "فون", "سیکشن", "گروپ"
+            "session", "guardian", "رول", "نام", "ولدیت", "فون", "سیکشن", "گروپ", "سیشن", "سرپرست"
         )
         return tokens.any { token ->
             keywords.any { k -> token.contains(k, ignoreCase = true) }
@@ -245,6 +266,9 @@ object CsvParserHelper {
         headers.forEachIndexed { i, h ->
             val header = h.trim().lowercase()
             when {
+                header.contains("guardian") || header.contains("parent") || header.contains("سرپرست") || (header.contains("father") && header.contains("phone")) -> {
+                    map["guardian_phone"] = i
+                }
                 header.contains("roll") || header.contains("رول") -> map["roll"] = i
                 header.contains("father") || header.contains("ولدیت") || header.contains("والد") -> map["father"] = i
                 header.contains("name") || header.contains("نام") || header.contains("student") || header.contains("طالب") -> {
@@ -252,7 +276,12 @@ object CsvParserHelper {
                         map["name"] = i
                     }
                 }
-                header.contains("phone") || header.contains("mobile") || header.contains("cell") || header.contains("contact") || header.contains("فون") || header.contains("موبائل") -> map["phone"] = i
+                header.contains("session") || header.contains("سیشن") || header.contains("batch") -> map["session"] = i
+                header.contains("phone") || header.contains("mobile") || header.contains("cell") || header.contains("contact") || header.contains("فون") || header.contains("موبائل") -> {
+                    if (!map.containsKey("phone")) {
+                        map["phone"] = i
+                    }
+                }
                 header.contains("class") || header.contains("grade") || header.contains("year") || header.contains("کلاس") || header.contains("سال") -> map["class"] = i
                 header.contains("section") || header.contains("sec") || header.contains("سیکشن") -> map["section"] = i
                 header.contains("group") || header.contains("discipline") || header.contains("گروپ") || header.contains("شعبہ") -> map["group"] = i

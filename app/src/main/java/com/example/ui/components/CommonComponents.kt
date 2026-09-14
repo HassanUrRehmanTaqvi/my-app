@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -7,6 +8,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -29,12 +32,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import com.example.ui.theme.AmberLight
 import com.example.ui.theme.CrimsonAbsent
 import com.example.ui.theme.CrimsonLight
@@ -71,19 +76,30 @@ fun AcademicHeader(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Box(
+                    Surface(
                         modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center
+                            .size(54.dp)
+                            .testTag("college_profile_dp"),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.White,
+                        shadowElevation = 2.dp,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.AccountBalance,
-                            contentDescription = "College Emblem",
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 5.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.ic_college_logo),
+                                contentDescription = "Official College DP / Logo",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .aspectRatio(200f / 240f)
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {

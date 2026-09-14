@@ -357,23 +357,14 @@ private suspend fun generateAndPrintReport(
     month: Int,
     year: Int
 ) {
-    val ownerId = user.userId
-    val students = viewModel.repository.getStudentsForClassCreation(
-        ownerId = ownerId,
-        className = cls.level,
-        section = cls.section,
-        subjectName = cls.subjectName,
-        subjectType = cls.subjectType,
-        academicYearId = cls.academicYearId
-    )
+    val students = viewModel.repository.getStudentsForClass(cls.classId)
 
     val monthPadded = if (month < 10) "0$month" else "$month"
-    val prefix = "$year-$monthPadded"
+    val prefix = if (reportType == "Annual Register") "$year" else "$year-$monthPadded"
     val sessions = viewModel.repository.getSessionsForClassDirect(cls.classId)
         .filter { it.date.startsWith(prefix) }
         .sortedBy { it.date }
 
-    val sessionIds = sessions.map { it.sessionId }
     val allRecords = mutableListOf<AttendanceRecordEntity>()
     sessions.forEach { s ->
         val recs = viewModel.repository.getRecordsForSessionDirect(s.sessionId)
@@ -398,45 +389,83 @@ private fun buildLandscapeHtmlReport(
     val monthNames = arrayOf("", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
     val monthName = if (month in 1..12) monthNames[month] else "Month"
 
+    val reportTitle = when (reportType) {
+        "Annual Register" -> "ANNUAL ATTENDANCE REGISTER • YEAR $year"
+        "Low Attendance" -> "DEFICIENT ATTENDANCE REGISTER (<75%) • $monthName $year"
+        else -> "MONTHLY ATTENDANCE REGISTER • $monthName $year"
+    }
+
+    val totalDeliveredPeriods = sessions.sumOf { it.periodCount }
+
     val dateHeaders = sessions.joinToString("") { s ->
         val day = s.date.substringAfterLast("-")
-        "<th style='padding:4px 2px; font-size:10px; border:1px solid #333; width:22px; text-align:center;'>$day</th>"
+        val periodLabel = if (s.periodCount > 1) "<br/><span style='font-size:8px; color:#2563EB;'>(${s.periodCount}P)</span>" else ""
+        "<th style='padding:4px 2px; font-size:10px; border:1px solid #333; min-width:24px; text-align:center;'>$day$periodLabel</th>"
     }
 
     val rowsHtml = StringBuilder()
-    students.forEachIndexed { index, student ->
+    var displaySr = 1
+    students.forEach { student ->
         val studentRecords = records.filter { it.studentId == student.studentId }
         val presentCount = studentRecords.count { it.status == "Present" }
         val absentCount = studentRecords.count { it.status == "Absent" }
         val leaveCount = studentRecords.count { it.status == "Leave" }
-        val totalSessions = sessions.size
-        val pct = if (totalSessions > 0) (presentCount.toDouble() / totalSessions) * 100.0 else 0.0
+        val pct = if (totalDeliveredPeriods > 0) {
+            ((presentCount.toDouble() / totalDeliveredPeriods) * 100.0).coerceIn(0.0, 100.0)
+        } else {
+            0.0
+        }
+
+        // If filtering for low attendance only (<75%)
+        if (reportType == "Low Attendance" && pct >= 75.0 && totalDeliveredPeriods > 0) {
+            return@forEach
+        }
 
         val daysCells = sessions.joinToString("") { session ->
-            val rec = studentRecords.find { it.sessionId == session.sessionId }
-            val symbol = when (rec?.status) {
-                "Present" -> "<span style='color:#059669; font-weight:bold;'>P</span>"
-                "Absent" -> "<span style='color:#DC2626; font-weight:bold;'>A</span>"
-                "Leave" -> "<span style='color:#D97706; font-weight:bold;'>L</span>"
-                else -> "—"
+            val sessionRecs = studentRecords.filter { it.sessionId == session.sessionId }
+            val sessionPresents = sessionRecs.count { it.status == "Present" }
+            val sessionAbsents = sessionRecs.count { it.status == "Absent" }
+            val sessionLeaves = sessionRecs.count { it.status == "Leave" }
+
+            val symbol = if (sessionRecs.isEmpty()) {
+                "—"
+            } else if (session.periodCount > 1) {
+                if (sessionPresents == session.periodCount) {
+                    "<span style='color:#059669; font-weight:bold;'>P(${session.periodCount})</span>"
+                } else if (sessionAbsents == session.periodCount) {
+                    "<span style='color:#DC2626; font-weight:bold;'>A(${session.periodCount})</span>"
+                } else if (sessionLeaves == session.periodCount) {
+                    "<span style='color:#D97706; font-weight:bold;'>L(${session.periodCount})</span>"
+                } else {
+                    "<span style='color:#2563EB; font-weight:bold;'>P:$sessionPresents/A:$sessionAbsents</span>"
+                }
+            } else {
+                when (sessionRecs.firstOrNull()?.status) {
+                    "Present" -> "<span style='color:#059669; font-weight:bold;'>P</span>"
+                    "Absent" -> "<span style='color:#DC2626; font-weight:bold;'>A</span>"
+                    "Leave" -> "<span style='color:#D97706; font-weight:bold;'>L</span>"
+                    else -> "—"
+                }
             }
             "<td style='padding:4px 2px; font-size:10px; border:1px solid #333; text-align:center;'>$symbol</td>"
         }
 
-        val pctColor = if (pct < 75.0 && totalSessions > 0) "#DC2626" else "#111"
+        val pctColor = if (pct < 75.0 && totalDeliveredPeriods > 0) "#DC2626" else "#111"
 
         rowsHtml.append("""
             <tr>
-                <td style='padding:4px; font-size:11px; border:1px solid #333; text-align:center;'>${index + 1}</td>
+                <td style='padding:4px; font-size:11px; border:1px solid #333; text-align:center;'>$displaySr</td>
                 <td style='padding:4px; font-size:11px; border:1px solid #333; text-align:center; font-weight:bold;'>${student.rollNumber}</td>
                 <td style='padding:4px; font-size:11px; border:1px solid #333;'>${student.name}</td>
                 <td style='padding:4px; font-size:11px; border:1px solid #333;'>${student.fatherName}</td>
                 $daysCells
                 <td style='padding:4px; font-size:11px; border:1px solid #333; text-align:center; font-weight:bold; color:#059669;'>$presentCount</td>
                 <td style='padding:4px; font-size:11px; border:1px solid #333; text-align:center; font-weight:bold; color:#DC2626;'>$absentCount</td>
+                <td style='padding:4px; font-size:11px; border:1px solid #333; text-align:center; font-weight:bold; color:#D97706;'>$leaveCount</td>
                 <td style='padding:4px; font-size:11px; border:1px solid #333; text-align:center; font-weight:bold; color:$pctColor;'>${String.format(Locale.US, "%.1f", pct)}%</td>
             </tr>
         """.trimIndent())
+        displaySr++
     }
 
     return """
@@ -464,7 +493,7 @@ private fun buildLandscapeHtmlReport(
             <div class="header">
                 <div class="college-name">${user.college}</div>
                 <div class="urdu-name">گورنمنٹ ایسوسی ایٹ کالج مخدوم رشید ملتان • تعلیمی سال 2026–27</div>
-                <div class="sub-header">MONTHLY ATTENDANCE REGISTER • $monthName $year</div>
+                <div class="sub-header">$reportTitle</div>
             </div>
 
             <table class="meta-table">
@@ -472,7 +501,7 @@ private fun buildLandscapeHtmlReport(
                     <td><strong>Class:</strong> ${cls.className} (${cls.level} - Sec ${cls.section})</td>
                     <td><strong>Subject:</strong> ${cls.subjectName} (${cls.subjectType})</td>
                     <td><strong>Teacher:</strong> ${user.name} (${user.designation})</td>
-                    <td><strong>Total Lectures:</strong> ${sessions.size}</td>
+                    <td><strong>Sessions:</strong> ${sessions.size} (<strong>Total Delivered Periods:</strong> $totalDeliveredPeriods)</td>
                 </tr>
             </table>
 
@@ -484,8 +513,9 @@ private fun buildLandscapeHtmlReport(
                         <th style="padding:4px; font-size:11px; width:150px; text-align:left;">Student Name</th>
                         <th style="padding:4px; font-size:11px; width:140px; text-align:left;">Father Name</th>
                         $dateHeaders
-                        <th style="padding:4px; font-size:11px; width:35px;">P</th>
-                        <th style="padding:4px; font-size:11px; width:35px;">A</th>
+                        <th style="padding:4px; font-size:11px; width:30px;" title="Present Periods">P</th>
+                        <th style="padding:4px; font-size:11px; width:30px;" title="Absent Periods">A</th>
+                        <th style="padding:4px; font-size:11px; width:30px;" title="Leave Periods">L</th>
                         <th style="padding:4px; font-size:11px; width:45px;">%</th>
                     </tr>
                 </thead>
@@ -513,36 +543,39 @@ private suspend fun generateCsvReport(
     month: Int,
     year: Int
 ): String {
-    val ownerId = cls.ownerId
-    val students = viewModel.repository.getStudentsForClassCreation(
-        ownerId = ownerId,
-        className = cls.level,
-        section = cls.section,
-        subjectName = cls.subjectName,
-        subjectType = cls.subjectType,
-        academicYearId = cls.academicYearId
-    )
+    val students = viewModel.repository.getStudentsForClass(cls.classId)
 
     val monthPadded = if (month < 10) "0$month" else "$month"
-    val prefix = "$year-$monthPadded"
+    val prefix = if (reportType == "Annual Register") "$year" else "$year-$monthPadded"
     val sessions = viewModel.repository.getSessionsForClassDirect(cls.classId)
         .filter { it.date.startsWith(prefix) }
         .sortedBy { it.date }
 
-    val csv = StringBuilder()
-    csv.append("Sr,Roll No,Student Name,Father Name,Class,Section,Subject,Total Lectures,Present,Absent,Percentage\n")
+    val totalDeliveredPeriods = sessions.sumOf { it.periodCount }
+    val allRecords = mutableListOf<AttendanceRecordEntity>()
+    sessions.forEach { sess ->
+        allRecords.addAll(viewModel.repository.getRecordsForSessionDirect(sess.sessionId))
+    }
 
-    students.forEachIndexed { idx, s ->
-        var present = 0
-        var absent = 0
-        sessions.forEach { sess ->
-            val recs = viewModel.repository.getRecordsForSessionDirect(sess.sessionId)
-            val r = recs.find { it.studentId == s.studentId }
-            if (r?.status == "Present") present++
-            else if (r?.status == "Absent") absent++
+    val csv = StringBuilder()
+    csv.append("Sr,Roll No,Student Name,Father Name,Class,Section,Subject,Total Sessions,Total Delivered Periods,Present Periods,Absent Periods,Leave Periods,Percentage\n")
+
+    var displaySr = 1
+    students.forEach { s ->
+        val sRecs = allRecords.filter { it.studentId == s.studentId }
+        val present = sRecs.count { it.status == "Present" }
+        val absent = sRecs.count { it.status == "Absent" }
+        val leave = sRecs.count { it.status == "Leave" }
+        val pct = if (totalDeliveredPeriods > 0) {
+            ((present.toDouble() / totalDeliveredPeriods) * 100.0).coerceIn(0.0, 100.0)
+        } else {
+            0.0
         }
-        val pct = if (sessions.isNotEmpty()) (present.toDouble() / sessions.size) * 100.0 else 0.0
-        csv.append("${idx + 1},${s.rollNumber},\"${s.name}\",\"${s.fatherName}\",\"${cls.level}\",\"${cls.section}\",\"${cls.subjectName}\",${sessions.size},$present,$absent,${String.format(Locale.US, "%.1f", pct)}%\n")
+
+        if (reportType != "Low Attendance" || pct < 75.0) {
+            csv.append("$displaySr,${s.rollNumber},\"${s.name}\",\"${s.fatherName}\",\"${cls.level}\",\"${cls.section}\",\"${cls.subjectName}\",${sessions.size},$totalDeliveredPeriods,$present,$absent,$leave,${String.format(Locale.US, "%.1f", pct)}%\n")
+            displaySr++
+        }
     }
 
     return csv.toString()

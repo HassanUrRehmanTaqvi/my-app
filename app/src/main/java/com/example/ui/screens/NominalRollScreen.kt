@@ -22,19 +22,24 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -44,8 +49,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import com.example.ui.components.StudentProfileDialog
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -77,6 +85,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.NominalRollValidator
 import com.example.data.model.StudentEntity
+import com.example.data.model.TeacherEntity
+import com.example.ui.components.CommunicationHelper
 import com.example.ui.theme.CrimsonAbsent
 import com.example.ui.theme.CrimsonLight
 import com.example.ui.theme.EmeraldLight
@@ -86,6 +96,7 @@ import com.example.util.CsvImportSummary
 import com.example.util.CsvParseResult
 import com.example.util.CsvParserHelper
 import com.example.util.ParsedCsvRow
+import com.example.util.SessionHelper
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -95,15 +106,23 @@ fun NominalRollScreen(
     modifier: Modifier = Modifier
 ) {
     val ownerId by viewModel.currentOwnerId.collectAsStateWithLifecycle()
+    val activeSession by viewModel.activeSession.collectAsStateWithLifecycle()
     val allStudents by viewModel.repository.getActiveStudents(ownerId).collectAsStateWithLifecycle(emptyList())
     val archivedStudents by viewModel.repository.getArchivedStudents(ownerId).collectAsStateWithLifecycle(emptyList())
+    val allTeachers by viewModel.allTeachers.collectAsStateWithLifecycle()
     val validationIssues by viewModel.validationIssues.collectAsStateWithLifecycle()
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var selectedSessionFilter by remember { mutableStateOf("تمام سیشنز") }
+    var selectedGroupFilter by remember { mutableStateOf("تمام گروپس") }
+    var selectedTeacherDeptFilter by remember { mutableStateOf("تمام شعبہ جات") }
+    var teacherToClaim by remember { mutableStateOf<TeacherEntity?>(null) }
+
     val tabTitles = listOf(
-        "First Year",
-        "Second Year",
+        "فرسٹ ایئر",
+        "سیکنڈ ایئر",
         "تمام طلبہ (${allStudents.size})",
+        "اساتذہ کرام (${allTeachers.size})",
         "آرکائیو شدہ (${archivedStudents.size})",
         "انتباہات (${validationIssues.size})"
     )
@@ -112,6 +131,7 @@ fun NominalRollScreen(
     var showAddStudentDialog by remember { mutableStateOf(false) }
     var studentToEdit by remember { mutableStateOf<StudentEntity?>(null) }
     var showBulkImportDialog by remember { mutableStateOf(false) }
+    var selectedStudentForProfile by remember { mutableStateOf<StudentEntity?>(null) }
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -165,7 +185,7 @@ fun NominalRollScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("نام، ولدیت یا رول نمبر تلاش کریں...") },
+                    placeholder = { Text("نام، ولدیت، رول نمبر یا شعبہ تلاش کریں...") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -182,32 +202,97 @@ fun NominalRollScreen(
                             Text(
                                 text = title,
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = if (index == 4 && validationIssues.isNotEmpty()) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurface
+                                color = if (index == 5 && validationIssues.isNotEmpty()) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurface
                             )
                         }
                     )
                 }
             }
 
+            // Academic Session Filter Chips Row for Student Tabs
+            if (selectedTabIndex in 0..2) {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val filterOptions = listOf("تمام سیشنز", activeSession) + SessionHelper.DEFAULT_SESSIONS.filter { it != activeSession }
+                    items(filterOptions.distinct()) { opt ->
+                        FilterChip(
+                            selected = selectedSessionFilter == opt,
+                            onClick = { selectedSessionFilter = opt },
+                            label = {
+                                Text(
+                                    text = if (opt == activeSession) "$opt (فعال)" else opt,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        )
+                    }
+                }
+
+                // Academic Groups Filter Row (میڈیکل، نان میڈیکل، آئی سی ایس، وغیرہ)
+                val groupOptions = remember(allStudents) {
+                    listOf("تمام گروپس") + allStudents.map { it.groupName }.filter { it.isNotBlank() }.distinct()
+                }
+                if (groupOptions.size > 1) {
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        items(groupOptions) { grp ->
+                            FilterChip(
+                                selected = selectedGroupFilter == grp,
+                                onClick = { selectedGroupFilter = grp },
+                                label = { Text(grp, style = MaterialTheme.typography.labelSmall) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
             // Tab 0, 1, 2: Active Students
             if (selectedTabIndex in 0..2) {
                 val displayedStudents = allStudents.filter { s ->
+                    val studentSession = s.session.ifBlank { activeSession }
+                    val matchesSession = when (selectedSessionFilter) {
+                        "تمام سیشنز" -> true
+                        else -> s.session.isBlank() || s.session == selectedSessionFilter
+                    }
+                    val matchesGroup = when (selectedGroupFilter) {
+                        "تمام گروپس" -> true
+                        else -> s.groupName.contains(selectedGroupFilter, ignoreCase = true)
+                    }
                     val matchesTab = when (selectedTabIndex) {
-                        0 -> s.className == "First Year"
-                        1 -> s.className == "Second Year"
+                        0 -> s.className == "First Year" || SessionHelper.determineLevelForSession(studentSession) == SessionHelper.AcademicLevel.FIRST_YEAR
+                        1 -> s.className == "Second Year" || SessionHelper.determineLevelForSession(studentSession) == SessionHelper.AcademicLevel.SECOND_YEAR
                         else -> true
                     }
                     val matchesSearch = searchQuery.isBlank() ||
                             s.name.contains(searchQuery, ignoreCase = true) ||
                             s.rollNumber.contains(searchQuery) ||
                             s.fatherName.contains(searchQuery, ignoreCase = true) ||
-                            s.phone.contains(searchQuery)
-                    matchesTab && matchesSearch
+                            s.phone.contains(searchQuery) ||
+                            s.guardianPhone.contains(searchQuery)
+                    matchesTab && matchesSearch && matchesSession && matchesGroup
                 }
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                    contentPadding = PaddingValues(top = 12.dp, bottom = 90.dp),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (displayedStudents.isEmpty()) {
@@ -226,13 +311,68 @@ fun NominalRollScreen(
                                 isArchived = false,
                                 onEdit = { studentToEdit = student },
                                 onArchive = { viewModel.archiveStudent(student.studentId) },
-                                onRestore = {}
+                                onRestore = {},
+                                onViewProfile = { selectedStudentForProfile = student }
                             )
                         }
                     }
                 }
             } else if (selectedTabIndex == 3) {
-                // Tab 3: Archived Students
+                // Tab 3: Teachers Directory (اساتذہ کرام)
+                val allDepts = remember(allTeachers) {
+                    listOf("تمام شعبہ جات") + allTeachers.map { it.department }.filter { it.isNotBlank() }.distinct()
+                }
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(allDepts) { dept ->
+                        FilterChip(
+                            selected = selectedTeacherDeptFilter == dept,
+                            onClick = { selectedTeacherDeptFilter = dept },
+                            label = { Text(dept, style = MaterialTheme.typography.labelSmall) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        )
+                    }
+                }
+
+                val displayedTeachers = allTeachers.filter { t ->
+                    val matchesDept = selectedTeacherDeptFilter == "تمام شعبہ جات" || t.department == selectedTeacherDeptFilter
+                    val matchesSearch = searchQuery.isBlank() ||
+                            t.name.contains(searchQuery, ignoreCase = true) ||
+                            t.department.contains(searchQuery, ignoreCase = true) ||
+                            t.designation.contains(searchQuery, ignoreCase = true) ||
+                            t.teacherId.contains(searchQuery, ignoreCase = true)
+                    matchesDept && matchesSearch
+                }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 90.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (displayedTeachers.isEmpty()) {
+                        item {
+                            Box(modifier = Modifier.fillMaxWidth().padding(top = 40.dp), contentAlignment = Alignment.Center) {
+                                Text("کوئی استاد نہیں ملا", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    } else {
+                        items(displayedTeachers) { teacher ->
+                            TeacherMasterCard(
+                                teacher = teacher,
+                                onClaim = { teacherToClaim = teacher }
+                            )
+                        }
+                    }
+                }
+            } else if (selectedTabIndex == 4) {
+                // Tab 4: Archived Students
                 val displayedArchived = archivedStudents.filter { s ->
                     searchQuery.isBlank() ||
                             s.name.contains(searchQuery, ignoreCase = true) ||
@@ -276,13 +416,14 @@ fun NominalRollScreen(
                                 isArchived = true,
                                 onEdit = { studentToEdit = student },
                                 onArchive = {},
-                                onRestore = { viewModel.restoreStudent(student.studentId) }
+                                onRestore = { viewModel.restoreStudent(student.studentId) },
+                                onViewProfile = { selectedStudentForProfile = student }
                             )
                         }
                     }
                 }
-            } else if (selectedTabIndex == 4) {
-                // Tab 4: Validation Issues List
+            } else if (selectedTabIndex == 5) {
+                // Tab 5: Validation Issues List
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                     contentPadding = PaddingValues(top = 12.dp, bottom = 90.dp),
@@ -317,6 +458,19 @@ fun NominalRollScreen(
             }
         }
 
+        // Teacher Claim Profile Dialog
+        if (teacherToClaim != null) {
+            val teacher = teacherToClaim!!
+            ClaimTeacherProfileDialog(
+                teacher = teacher,
+                onDismiss = { teacherToClaim = null },
+                onClaim = { email ->
+                    viewModel.claimTeacherProfile(teacher.teacherId, email)
+                    teacherToClaim = null
+                }
+            )
+        }
+
         // Add or Edit Student Dialog with DUPLICATE DETECTION
         if (showAddStudentDialog || studentToEdit != null) {
             AddEditStudentDialog(
@@ -348,6 +502,15 @@ fun NominalRollScreen(
                 onDismiss = { showBulkImportDialog = false }
             )
         }
+
+        // Student Profile & Semester Attendance Trend Dialog (D3 / Recharts visualization)
+        selectedStudentForProfile?.let { student ->
+            StudentProfileDialog(
+                student = student,
+                viewModel = viewModel,
+                onDismiss = { selectedStudentForProfile = null }
+            )
+        }
     }
 }
 
@@ -357,8 +520,12 @@ fun StudentMasterCard(
     isArchived: Boolean,
     onEdit: () -> Unit,
     onArchive: () -> Unit,
-    onRestore: () -> Unit
+    onRestore: () -> Unit,
+    onViewProfile: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val contactPhone = student.guardianPhone.ifBlank { student.phone }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -390,7 +557,9 @@ fun StudentMasterCard(
                         }
                     }
                     Spacer(modifier = Modifier.width(10.dp))
-                    Column {
+                    Column(
+                        modifier = Modifier.clickable { onViewProfile() }
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = student.name,
@@ -417,10 +586,17 @@ fun StudentMasterCard(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (student.guardianPhone.isNotBlank()) {
+                            Text(
+                                text = "سرپرست / والد فون: ${student.guardianPhone}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF0D9488)
+                            )
+                        }
                     }
                 }
 
-                Row {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     if (isArchived) {
                         OutlinedButton(
                             onClick = onRestore,
@@ -432,6 +608,9 @@ fun StudentMasterCard(
                             Text("بحال کریں", style = MaterialTheme.typography.labelSmall)
                         }
                     } else {
+                        IconButton(onClick = onViewProfile, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.ShowChart, contentDescription = "حاضری رجحان", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
                         IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                         }
@@ -449,28 +628,340 @@ fun StudentMasterCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false)
                 ) {
-                    Text(
-                        text = "${student.className} • Section ${student.section} • ${student.groupName}",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            text = "${student.className} • ${student.groupName}",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    if (student.marks != null) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFFEF3C7)
+                        ) {
+                            Text(
+                                text = "نمبر: ${student.marks}",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFFB45309)
+                            )
+                        }
+                    }
+
+                    if (student.session.isNotBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFEFF6FF)
+                        ) {
+                            Text(
+                                text = student.session,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFF1D4ED8)
+                            )
+                        }
+                    }
                 }
 
-                if (student.electiveSubjectsRaw.isNotBlank()) {
+                val subjectList = listOf(student.subject1, student.subject2, student.subject3).filter { it.isNotBlank() }
+                val subjectsDisplay = if (subjectList.isNotEmpty()) subjectList.joinToString(" • ") else student.electiveSubjectsRaw
+                if (subjectsDisplay.isNotBlank()) {
                     Text(
-                        text = "اختیاری: ${student.electiveSubjectsRaw}",
+                        text = subjectsDisplay,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1
                     )
+                }
+            }
+
+            // Quick Call, WhatsApp & SMS Bar for direct communication
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Profile & Trend View Button
+                OutlinedButton(
+                    onClick = onViewProfile,
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        Icons.Default.ShowChart,
+                        contentDescription = "پروفائل و رجحان",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("پروفائل و رجحان", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
+
+                if (contactPhone.isNotBlank() && !isArchived) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // WhatsApp
+                        Button(
+                            onClick = {
+                                val defaultMsg = "محترم والد/سرپرست، گورنمنٹ ایسوسی ایٹ کالج مخدوم رشید ملتان کی جانب سے آپ کے صاحبزادے ${student.name} (رول نمبر ${student.rollNumber}) کے حوالے سے اطلاع۔"
+                                CommunicationHelper.openWhatsApp(context, contactPhone, defaultMsg)
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "WhatsApp", modifier = Modifier.size(14.dp), tint = Color.White)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("واٹس ایپ", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                        }
+
+                        // SMS
+                        OutlinedButton(
+                            onClick = {
+                                val defaultMsg = "محترم والد/سرپرست، گورنمنٹ ایسوسی ایٹ کالج مخدوم رشید ملتان کی جانب سے آپ کے صاحبزادے ${student.name} (رول نمبر ${student.rollNumber}) کے حوالے سے اطلاع۔"
+                                CommunicationHelper.openSmsApp(context, contactPhone, defaultMsg)
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "SMS", modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("ایس ایم ایس", style = MaterialTheme.typography.labelSmall)
+                        }
+
+                        // Call
+                        Button(
+                            onClick = { CommunicationHelper.makePhoneCall(context, contactPhone) },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPresent),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Call, contentDescription = "Call", modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("کال کریں", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+fun TeacherMasterCard(
+    teacher: TeacherEntity,
+    onClaim: () -> Unit
+) {
+    val isRegistered = teacher.isRegistered.equals("Yes", ignoreCase = true)
+    val isAdmin = teacher.role.equals("admin", ignoreCase = true)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("teacher_card_${teacher.teacherId}"),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (isAdmin) Color(0xFFFEF3C7) else MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = teacher.teacherId.replace("t_", "#"),
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = if (isAdmin) Color(0xFFB45309) else MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = teacher.name,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (isAdmin) Color(0xFFFEF3C7) else Color(0xFFEFF6FF)
+                            ) {
+                                Text(
+                                    text = if (isAdmin) "ایڈمنسٹریٹر" else "استاد",
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = if (isAdmin) Color(0xFFB45309) else Color(0xFF1D4ED8)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "${teacher.designation} • شعبہ ${teacher.department}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (isRegistered && teacher.registeredEmail.isNotBlank()) {
+                            Text(
+                                text = "ای میل: ${teacher.registeredEmail}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF059669)
+                            )
+                        }
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (isRegistered) EmeraldLight else Color(0xFFF1F5F9)
+                ) {
+                    Text(
+                        text = if (isRegistered) "منسلک / رجسٹرڈ" else "غیر رجسٹرڈ",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = if (isRegistered) EmeraldPresent else Color(0xFF64748B)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "شناختی کوڈ: ${teacher.teacherId}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (!isRegistered) {
+                    Button(
+                        onClick = onClaim,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("پروفائل منسلک کریں (Claim)", style = MaterialTheme.typography.labelSmall)
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onClaim,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("ای میل تبدیل کریں", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ClaimTeacherProfileDialog(
+    teacher: TeacherEntity,
+    onDismiss: () -> Unit,
+    onClaim: (String) -> Unit
+) {
+    var emailInput by remember { mutableStateOf(teacher.registeredEmail) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "پروفائل کلیم کریں (Claim Teacher Profile)",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = teacher.name,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "${teacher.designation} • شعبہ ${teacher.department}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "شناختی نمبر: ${teacher.teacherId} • کردار: ${if (teacher.role == "admin") "ایڈمنسٹریٹر" else "استاد"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                Text(
+                    text = "براہ کرم اپنا کالج / دفتری ای میل درج کریں تاکہ آپ کی شناخت سسٹم سے منسلک ہو سکے:",
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+                OutlinedTextField(
+                    value = emailInput,
+                    onValueChange = { emailInput = it },
+                    label = { Text("ای میل پتہ (Email Address)") },
+                    placeholder = { Text("teacher@gacmr.edu.pk") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onClaim(emailInput) },
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("منسلک کریں")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("منسوخ")
+            }
+        }
+    )
 }
 
 @Composable
@@ -527,22 +1018,25 @@ fun AddEditStudentDialog(
     var name by remember { mutableStateOf(student?.name ?: "") }
     var fatherName by remember { mutableStateOf(student?.fatherName ?: "") }
     var phone by remember { mutableStateOf(student?.phone ?: "03") }
+    var guardianPhone by remember { mutableStateOf(student?.guardianPhone ?: "") }
+    var session by remember { mutableStateOf(student?.session?.ifBlank { "2026–2028" } ?: "2026–2028") }
     var className by remember { mutableStateOf(student?.className ?: "First Year") }
     var section by remember { mutableStateOf(student?.section ?: "B") }
     var groupName by remember { mutableStateOf(student?.groupName ?: "Pre-Medical") }
     var electiveSubjects by remember { mutableStateOf(student?.electiveSubjectsRaw ?: "") }
 
+    var sessionExpanded by remember { mutableStateOf(false) }
     var classExpanded by remember { mutableStateOf(false) }
     var sectionExpanded by remember { mutableStateOf(false) }
     var groupExpanded by remember { mutableStateOf(false) }
 
     // REAL-TIME DUPLICATE DETECTION
-    val duplicateStudent = remember(rollNumber, className) {
+    val duplicateStudent = remember(rollNumber, className, session) {
         val trimmedRoll = rollNumber.trim()
         if (trimmedRoll.isBlank()) null
         else allStudents.find {
             it.rollNumber.trim().equals(trimmedRoll, ignoreCase = true) &&
-            it.className.trim().equals(className.trim(), ignoreCase = true) &&
+            (it.className.trim().equals(className.trim(), ignoreCase = true) || it.session.trim().equals(session.trim(), ignoreCase = true)) &&
             it.studentId != student?.studentId
         }
     }
@@ -554,7 +1048,7 @@ fun AddEditStudentDialog(
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth().height(440.dp),
+                modifier = Modifier.fillMaxWidth().height(480.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Duplicate warning banner if detected
@@ -568,7 +1062,7 @@ fun AddEditStudentDialog(
                             Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "انتباہ: رول نمبر ${duplicateStudent.rollNumber} پہلے ہی '${duplicateStudent.name}' (سیکشن ${duplicateStudent.section}) کو الاٹ ہے۔ مختلف رول نمبر درج کریں۔",
+                                text = "انتباہ: رول نمبر ${duplicateStudent.rollNumber} پہلے ہی '${duplicateStudent.name}' کو الاٹ ہے۔ مختلف رول نمبر درج کریں۔",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color(0xFF991B1B)
                             )
@@ -589,12 +1083,21 @@ fun AddEditStudentDialog(
                     OutlinedTextField(
                         value = phone,
                         onValueChange = { phone = it },
-                        label = { Text("فون نمبر (03...)") },
+                        label = { Text("طالب علم فون") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         singleLine = true,
                         modifier = Modifier.weight(1.2f)
                     )
                 }
+
+                OutlinedTextField(
+                    value = guardianPhone,
+                    onValueChange = { guardianPhone = it },
+                    label = { Text("والد / سرپرست فون نمبر") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 OutlinedTextField(
                     value = name,
@@ -612,12 +1115,41 @@ fun AddEditStudentDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                // Session & Class Row
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Session Dropdown
+                    ExposedDropdownMenuBox(
+                        expanded = sessionExpanded,
+                        onExpandedChange = { sessionExpanded = !sessionExpanded },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        OutlinedTextField(
+                            value = session,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("تعلیمی سیشن") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sessionExpanded) },
+                            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        )
+                        ExposedDropdownMenu(expanded = sessionExpanded, onDismissRequest = { sessionExpanded = false }) {
+                            SessionHelper.DEFAULT_SESSIONS.forEach { ssn ->
+                                DropdownMenuItem(
+                                    text = { Text(ssn) },
+                                    onClick = {
+                                        session = ssn
+                                        className = SessionHelper.determineLevelForSession(ssn).englishTitle
+                                        sessionExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     // Class Dropdown
                     ExposedDropdownMenuBox(
                         expanded = classExpanded,
                         onExpandedChange = { classExpanded = !classExpanded },
-                        modifier = Modifier.weight(1.2f)
+                        modifier = Modifier.weight(1f)
                     ) {
                         OutlinedTextField(
                             value = className,
@@ -632,7 +1164,10 @@ fun AddEditStudentDialog(
                             DropdownMenuItem(text = { Text("Second Year") }, onClick = { className = "Second Year"; classExpanded = false })
                         }
                     }
+                }
 
+                // Section & Group Row
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     // Section Dropdown
                     ExposedDropdownMenuBox(
                         expanded = sectionExpanded,
@@ -653,25 +1188,25 @@ fun AddEditStudentDialog(
                             }
                         }
                     }
-                }
 
-                // Group Dropdown
-                ExposedDropdownMenuBox(
-                    expanded = groupExpanded,
-                    onExpandedChange = { groupExpanded = !groupExpanded },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    OutlinedTextField(
-                        value = groupName,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("گروپ / شعبہ (Group)") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = groupExpanded) },
-                        modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(expanded = groupExpanded, onDismissRequest = { groupExpanded = false }) {
-                        listOf("Pre-Medical", "Pre-Engineering", "ICS", "General Science", "Humanities/Arts", "Commerce").forEach { grp ->
-                            DropdownMenuItem(text = { Text(grp) }, onClick = { groupName = grp; groupExpanded = false })
+                    // Group Dropdown
+                    ExposedDropdownMenuBox(
+                        expanded = groupExpanded,
+                        onExpandedChange = { groupExpanded = !groupExpanded },
+                        modifier = Modifier.weight(1.2f)
+                    ) {
+                        OutlinedTextField(
+                            value = groupName,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("گروپ") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = groupExpanded) },
+                            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(expanded = groupExpanded, onDismissRequest = { groupExpanded = false }) {
+                            listOf("Pre-Medical", "Pre-Engineering", "ICS", "General Science", "Humanities/Arts", "Commerce").forEach { grp ->
+                                DropdownMenuItem(text = { Text(grp) }, onClick = { groupName = grp; groupExpanded = false })
+                            }
                         }
                     }
                 }
@@ -696,6 +1231,8 @@ fun AddEditStudentDialog(
                             name = name.trim(),
                             fatherName = fatherName.trim(),
                             phone = phone.trim(),
+                            guardianPhone = guardianPhone.trim(),
+                            session = session.trim(),
                             className = className,
                             section = section,
                             groupName = groupName,
@@ -707,6 +1244,8 @@ fun AddEditStudentDialog(
                             name = name.trim(),
                             fatherName = fatherName.trim(),
                             phone = phone.trim(),
+                            guardianPhone = guardianPhone.trim(),
+                            session = session.trim(),
                             className = className,
                             section = section,
                             groupName = groupName,

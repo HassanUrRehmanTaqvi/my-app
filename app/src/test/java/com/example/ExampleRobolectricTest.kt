@@ -28,4 +28,11 @@ class ExampleRobolectricTest {
     assertEquals("Khan, Muhammad", tokens[1])
     assertEquals("Biology, Chemistry", tokens[7])
   }
+
+  @Test
+  fun `test college logo drawable is present and valid`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val drawable = context.getDrawable(R.drawable.ic_college_logo)
+    org.junit.Assert.assertNotNull("College logo drawable must exist", drawable)
+  }
 }

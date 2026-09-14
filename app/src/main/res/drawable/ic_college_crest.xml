@@ -1,0 +1,237 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="240dp"
+    android:viewportWidth="400"
+    android:viewportHeight="480">
+
+    <!-- Official College Emblem: Government Associate College Makhdoom Rashid Multan -->
+    <!-- Authentic Navy Blue & White Institutional Palette -->
+
+    <!-- Base Canvas / Clean Background -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M0,0h400v480h-400z" />
+
+    <!-- 1. Outer Baroque Shield / Filigree Framework -->
+    <path
+        android:strokeColor="#1B365D"
+        android:strokeWidth="4"
+        android:fillColor="#00000000"
+        android:pathData="M200,42 C240,42 290,55 330,85 C355,104 365,130 350,155 C338,175 320,185 320,205 C320,225 345,250 365,280 C380,305 380,335 365,360 C345,395 305,420 260,438 C235,448 215,455 200,455 C185,455 165,448 140,438 C95,420 55,395 35,360 C20,335 20,305 35,280 C55,250 80,225 80,205 C80,185 62,175 50,155 C35,130 45,104 70,85 C110,55 160,42 200,42 Z" />
+
+    <!-- Inner Shield Border -->
+    <path
+        android:strokeColor="#1B365D"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M200,52 C236,52 280,64 316,92 C338,109 346,131 334,152 C324,168 308,178 308,205 C308,230 334,258 350,282 C362,302 362,328 350,348 C332,378 296,402 255,420 C230,429 212,435 200,435 C188,435 170,429 145,420 C104,402 68,378 50,348 C38,328 38,302 50,282 C66,258 92,230 92,205 C92,178 76,168 66,152 C54,131 62,109 84,92 C120,64 164,52 200,52 Z" />
+
+    <!-- 2. Top Arch Apex: Crescent & Star with Rays -->
+    <path
+        android:fillColor="#1B365D"
+        android:pathData="M178,54 C178,35 188,22 200,22 C212,22 222,35 222,54 Z" />
+
+    <!-- Crescent Moon inside Top Arch -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M199,31 C193,31 188,36 188,42 C188,48 193,53 199,53 C201,53 203,52.5 204.5,51.5 C201.5,50.5 199.5,47.5 199.5,42 C199.5,36.5 201.5,33.5 204.5,32.5 C203,31.5 201,31 199,31 Z" />
+
+    <!-- Star next to Crescent -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M207,37 L208.5,40.5 L212,40.5 L209.2,42.5 L210.3,46 L207,44 L203.7,46 L204.8,42.5 L202,40.5 L205.5,40.5 Z" />
+
+    <!-- Horizontal Radiating Rays on Sides of Arch -->
+    <path
+        android:strokeColor="#1B365D"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M152,36 L170,36 M148,42 L168,42 M152,48 L170,48 M230,36 L248,36 M232,42 L252,42 M230,48 L248,48" />
+
+    <!-- 3. Upper Curved Banner: YEAR OF NEW MILLENNIUM -->
+    <path
+        android:strokeColor="#1B365D"
+        android:strokeWidth="1.5"
+        android:fillColor="#FFFFFF"
+        android:pathData="M120,96 C145,86 172,82 200,82 C228,82 255,86 280,96 L276,108 C253,99 227,95 200,95 C173,95 147,99 124,108 Z" />
+
+    <!-- Upper Banner Decorative Text Markings -->
+    <path
+        android:strokeColor="#1B365D"
+        android:strokeWidth="1.5"
+        android:fillColor="#00000000"
+        android:pathData="M138,98 C158,92 178,89 200,89 C222,89 242,92 262,98" />
+
+    <!-- 4. Central Circular Medallion -->
+    <!-- Medallion Outer Fill (Deep Navy) -->
+    <path
+        android:fillColor="#1B365D"
+        android:pathData="M200,122 A104,104 0 1,1 199.99,122 Z" />
+
+    <!-- Medallion Outer Ring Rim -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M200,125 A101,101 0 1,1 199.99,125 Z" />
+
+    <!-- Medallion Inner Ring Rim -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:fillColor="#00000000"
+        android:pathData="M200,148 A78,78 0 1,1 199.99,148 Z" />
+
+    <!-- Inner Core Background (Pure White Canvas) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M200,150 A76,76 0 1,1 199.99,150 Z" />
+
+    <!-- Ring Inscription Arc Guides / Detail (GOVT. ASSOCIATE COLLEGE MAKHDOOM RASHED MULTAN) -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.2"
+        android:fillColor="#00000000"
+        android:pathData="M112,238 C110,185 148,136 200,136 C252,136 290,185 288,238" />
+
+    <!-- Inner Ring Flanking Stars -->
+    <path android:fillColor="#FFFFFF" android:pathData="M116.0,287.0 L117.4,290.1 L120.8,290.5 L118.2,292.7 L118.9,296.0 L116.0,294.3 L113.1,296.0 L113.8,292.7 L111.2,290.5 L114.6,290.1 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M284.0,287.0 L285.4,290.1 L288.8,290.5 L286.2,292.7 L286.9,296.0 L284.0,294.3 L281.1,296.0 L281.8,292.7 L279.2,290.5 L282.6,290.1 Z" />
+
+    <!-- 5. Artwork Inside Inner Medallion -->
+
+    <!-- Top Arabic Calligraphy: الَّذِي عَلَّمَ بِالْقَلَمِ -->
+    <path
+        android:fillColor="#1B365D"
+        android:pathData="M154,170 C160,166 168,166 174,170 C178,165 186,164 192,168 C198,163 206,163 212,167 C218,163 226,164 232,168 C238,165 244,167 248,170 L246,173 C240,170 234,169 228,172 C222,168 214,168 208,172 C202,168 194,168 188,172 C182,169 174,170 168,173 C162,170 158,171 154,172 Z" />
+
+    <!-- Diacritical marks / Calligraphic accents for Quranic Verse -->
+    <path
+        android:strokeColor="#1B365D"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M166,162 L170,158 M188,160 C189,157 192,157 193,159 M210,160 L214,156 M228,160 L232,156 M198,158 L202,154" />
+
+    <!-- Urdu Translation Subtitle: جس نے علم دیا قلم کے ذریعے سے -->
+    <path
+        android:fillColor="#1B365D"
+        android:pathData="M160,180 C172,177 186,177 200,177 C214,177 228,177 240,180 L239,182 C226,179 214,179 200,179 C186,179 174,179 161,182 Z" />
+
+    <!-- Open Book (Holy Quran / Book of Knowledge) -->
+    <!-- Left Page Outer Shape -->
+    <path
+        android:fillColor="#1B365D"
+        android:pathData="M198,194 C184,188 168,190 152,196 C150,206 150,218 152,228 C168,222 184,220 198,226 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M196,196 C183,191 169,193 155,198 C153,206 153,216 155,224 C169,219 183,217 196,222 Z" />
+
+    <!-- Right Page Outer Shape -->
+    <path
+        android:fillColor="#1B365D"
+        android:pathData="M202,194 C216,188 232,190 248,196 C250,206 250,218 248,228 C232,222 216,220 202,226 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M204,196 C217,191 231,193 245,198 C247,206 247,216 245,224 C231,219 217,217 204,222 Z" />
+
+    <!-- Book Center Spine & Page Divider Lines -->
+    <path
+        android:strokeColor="#1B365D"
+        android:strokeWidth="2"
+        android:pathData="M200,193 L200,227" />
+
+    <!-- Text lines on Left Page -->
+    <path
+        android:strokeColor="#1B365D"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:pathData="M160,204 C170,201 180,201 190,204 M160,210 C170,207 180,207 190,210 M162,216 C171,213 180,213 188,216" />
+
+    <!-- Text lines on Right Page -->
+    <path
+        android:strokeColor="#1B365D"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:pathData="M210,204 C220,201 230,201 240,204 M210,210 C220,207 230,207 240,210 M212,216 C220,213 229,213 238,216" />
+
+    <!-- Rehal (Traditional Crossed Wooden Bookstand) -->
+    <!-- Front Leg Left-to-Right diagonal -->
+    <path
+        android:fillColor="#1B365D"
+        android:pathData="M174,226 L226,252 L220,255 L168,229 Z" />
+    <!-- Rear Leg Right-to-Left diagonal -->
+    <path
+        android:fillColor="#1B365D"
+        android:pathData="M226,226 L174,252 L168,249 L220,223 Z" />
+
+    <!-- Rehal Base Arch Stand -->
+    <path
+        android:strokeColor="#1B365D"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M164,250 C176,254 186,255 200,255 C214,255 224,254 236,250" />
+
+    <!-- Establishment Date Inscriptions below Rehal -->
+    <!-- تاریخ قیام (Date of Establishment) -->
+    <path
+        android:fillColor="#1B365D"
+        android:pathData="M182,267 C188,264 194,264 200,264 C206,264 212,264 218,267 L217,269 C212,266 206,266 200,266 C194,266 188,266 183,269 Z" />
+
+    <!-- 27 دسمبر 1999 (27 December 1999) -->
+    <path
+        android:fillColor="#1B365D"
+        android:pathData="M172,279 C180,275 190,274 200,274 C210,274 220,275 228,279 L227,281 C219,277 210,276 200,276 C190,276 181,277 173,281 Z" />
+
+    <!-- 6. Bottom Banner Ribbon: گورنمنٹ ایسوسی ایٹ کالج مخدوم رشید -->
+    <!-- Ribbon Shadow / Fold Ends -->
+    <path
+        android:fillColor="#0F2038"
+        android:pathData="M68,375 L92,360 L92,392 Z M332,375 L308,360 L308,392 Z" />
+
+    <!-- Ribbon Tails with V-Notch -->
+    <path
+        android:fillColor="#142B4B"
+        android:pathData="M50,366 L78,366 L78,398 L50,398 L60,382 Z M350,366 L322,366 L322,398 L350,398 L340,382 Z" />
+
+    <!-- Ribbon Main Body (Deep Navy Banner) -->
+    <path
+        android:fillColor="#1B365D"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:pathData="M82,364 C116,354 156,348 200,348 C244,348 284,354 318,364 C322,366 322,372 320,386 C286,396 244,402 200,402 C156,402 114,396 80,386 C78,372 78,366 82,364 Z" />
+
+    <!-- Urdu Text on Ribbon (Calligraphic representation: گورنمنٹ ایسوسی ایٹ کالج مخدوم رشید) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M105,378 C115,372 128,371 138,375 C146,370 156,370 166,374 C176,369 188,368 200,368 C212,368 224,369 234,374 C244,370 254,370 262,375 C272,371 285,372 295,378 L293,381 C284,376 273,375 264,378 C256,373 246,373 236,377 C226,372 213,371 200,371 C187,371 174,372 164,377 C154,373 144,373 136,378 C127,375 116,376 107,381 Z" />
+
+    <!-- Urdu Calligraphic Nuqtas / Dots on Ribbon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M125,370 A2.2,2.2 0 1,1 124.99,370 Z M132,370 A2.2,2.2 0 1,1 131.99,370 Z M175,366 A2.2,2.2 0 1,1 174.99,366 Z M225,366 A2.2,2.2 0 1,1 224.99,366 Z M270,370 A2.2,2.2 0 1,1 269.99,370 Z" />
+
+    <!-- 7. Bottom Baroque Flourishes Converging to Star -->
+    <path
+        android:strokeColor="#1B365D"
+        android:strokeWidth="3"
+        android:fillColor="#00000000"
+        android:pathData="M150,422 C165,436 182,444 200,444 C218,444 235,436 250,422" />
+    <path
+        android:strokeColor="#1B365D"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M170,432 C180,442 190,447 200,447 C210,447 220,442 230,432" />
+
+    <!-- 8. The Five Official 5-Pointed Navy Stars -->
+    <!-- Star 1: Top Left Flourish -->
+    <path android:fillColor="#1B365D" android:pathData="M56.0,101.0 L59.2,109.6 L68.4,110.0 L61.2,115.7 L63.6,124.5 L56.0,119.5 L48.4,124.5 L50.8,115.7 L43.6,110.0 L52.8,109.6 Z" />
+    <!-- Star 2: Top Right Flourish -->
+    <path android:fillColor="#1B365D" android:pathData="M344.0,101.0 L347.2,109.6 L356.4,110.0 L349.2,115.7 L351.6,124.5 L344.0,119.5 L336.4,124.5 L338.8,115.7 L331.6,110.0 L340.8,109.6 Z" />
+    <!-- Star 3: Mid Left Wing -->
+    <path android:fillColor="#1B365D" android:pathData="M38.0,323.0 L40.9,331.0 L49.4,331.3 L42.8,336.5 L45.1,344.7 L38.0,340.0 L30.9,344.7 L33.2,336.5 L26.6,331.3 L35.1,331.0 Z" />
+    <!-- Star 4: Mid Right Wing -->
+    <path android:fillColor="#1B365D" android:pathData="M362.0,323.0 L364.9,331.0 L373.4,331.3 L366.8,336.5 L369.1,344.7 L362.0,340.0 L354.9,344.7 L357.2,336.5 L350.6,331.3 L359.1,331.0 Z" />
+    <!-- Star 5: Bottom Apex -->
+    <path android:fillColor="#1B365D" android:pathData="M200.0,446.0 L203.5,455.1 L213.3,455.7 L205.7,461.9 L208.2,471.3 L200.0,466.0 L191.8,471.3 L194.3,461.9 L186.7,455.7 L196.5,455.1 Z" />
+
+</vector>

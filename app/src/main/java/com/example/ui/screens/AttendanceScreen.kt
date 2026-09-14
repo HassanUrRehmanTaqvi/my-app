@@ -20,7 +20,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -28,6 +30,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -42,6 +45,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
@@ -62,14 +66,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.InitialSeedData
 import com.example.data.model.AttendanceSessionEntity
 import com.example.data.model.ClassEntity
 import com.example.data.model.StudentEntity
+import com.example.ui.components.NotificationType
+import com.example.ui.components.ParentNotificationDialog
+import com.example.util.CommunicationHelper
+import com.example.util.ParentNotificationHelper
 import com.example.ui.theme.AmberLeave
 import com.example.ui.theme.AmberLight
 import com.example.ui.theme.CrimsonAbsent
@@ -91,8 +101,11 @@ fun AttendanceScreen(
     onNavigateToParentMessaging: (classId: String, date: String, missedPeriods: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val ownerId by viewModel.currentOwnerId.collectAsStateWithLifecycle()
+    val activeSession by viewModel.activeSession.collectAsStateWithLifecycle()
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val classes by viewModel.repository.getClasses(ownerId).collectAsStateWithLifecycle(emptyList())
 
     // Selected Class
@@ -125,47 +138,31 @@ fun AttendanceScreen(
     var attendanceSummary by remember { mutableStateOf<AttendanceSummaryData?>(null) }
     var showSummaryDialog by remember { mutableStateOf(false) }
 
+    // Parent notification dialog state
+    var studentForNotification by remember { mutableStateOf<StudentEntity?>(null) }
+    var generatedNotificationMsg by remember { mutableStateOf("") }
+    var showClassSetupDialog by remember { mutableStateOf(false) }
+
     // Initialize selected class
     LaunchedEffect(classes, preselectedClassId) {
-        if (selectedClass == null && classes.isNotEmpty()) {
+        if (classes.isNotEmpty()) {
+            val savedClassId = com.example.util.ProfessorSetupPreferences.getClassId(context)
             selectedClass = if (preselectedClassId != null) {
                 classes.find { it.classId == preselectedClassId } ?: classes.first()
+            } else if (savedClassId != null) {
+                classes.find { it.classId == savedClassId } ?: classes.first()
             } else {
                 classes.first()
             }
         }
     }
 
-    // Load active memberships for selected class and check duplicates
+    // Load active students for selected class and check duplicates
     fun loadStudentsAndCheckExisting() {
         val currentClass = selectedClass ?: return
         coroutineScope.launch {
             isLoadingStudents = true
-            val memberships = viewModel.repository.getActiveMemberships(currentClass.classId)
-            val activeMembers = viewModel.repository.getActiveMemberships(currentClass.classId)
-            // Load direct from DAO
-            val activeMembersList = viewModel.repository.getActiveMemberships(currentClass.classId)
-            // Query DB directly
-            val activeList = viewModel.repository.getStudentsByIds(
-                viewModel.repository.getActiveMemberships(currentClass.classId)
-                    .let {
-                        val list = mutableListOf<String>()
-                        // Collect first
-                        list
-                    }
-            )
-
-            // Let's get active memberships and students directly
-            val membershipsList = viewModel.repository.getActiveMemberships(currentClass.classId)
-            // Use repository suspend helper
-            val allActive = viewModel.repository.getStudentsForClassCreation(
-                ownerId = ownerId,
-                className = currentClass.level,
-                section = currentClass.section,
-                subjectName = currentClass.subjectName,
-                subjectType = currentClass.subjectType,
-                academicYearId = currentClass.academicYearId
-            )
+            val allActive = viewModel.repository.getStudentsForClass(currentClass.classId)
             enrolledStudents = allActive
 
             // Check if existing session exists for this class & date
@@ -215,11 +212,28 @@ fun AttendanceScreen(
                     elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = "روزانہ حاضری (Take Attendance)",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "روزانہ حاضری (Take Attendance)",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFEFF6FF)
+                            ) {
+                                Text(
+                                    text = "سیشن: $activeSession",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = Color(0xFF1D4ED8)
+                                )
+                            }
+                        }
 
                         // Class Dropdown
                         ExposedDropdownMenuBox(
@@ -248,6 +262,42 @@ fun AttendanceScreen(
                                             selectedClass = cls
                                             classDropdownExpanded = false
                                         }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Class Details & Quick Change Action
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "کل شامل طلبہ: ${enrolledStudents.size}",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                                modifier = Modifier.clickable { showClassSetupDialog = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.School,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "کلاس / طلبہ تبدیل کریں",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                             }
@@ -532,6 +582,34 @@ fun AttendanceScreen(
                         onSetStatus = { newStatus ->
                             undoStack.add(Pair(student.studentId, currentStatus))
                             studentStatuses[student.studentId] = newStatus
+                        },
+                        onNotifyParent = {
+                            coroutineScope.launch {
+                                val stats = viewModel.repository.getStudentAttendanceStats(
+                                    studentId = student.studentId,
+                                    classId = selectedClass?.classId ?: "",
+                                    date = selectedDate,
+                                    missedPeriodsToday = periodCount
+                                )
+                                val user = currentUser ?: InitialSeedData.defaultUser
+                                val dept = ParentNotificationHelper.resolveDepartment(user.department, selectedClass?.subjectName, user.defaultSubject)
+                                val clg = user.college.ifBlank { ParentNotificationHelper.DEFAULT_COLLEGE_NAME }
+
+                                generatedNotificationMsg = ParentNotificationHelper.generateAbsenceNotification(
+                                    studentName = student.name,
+                                    rollNumber = student.rollNumber,
+                                    date = selectedDate,
+                                    missedPeriodsToday = stats.missedPeriodsToday,
+                                    monthlyPresent = stats.presentPeriods,
+                                    monthlyAbsent = stats.absentPeriods,
+                                    attendancePercentage = stats.attendancePercentage,
+                                    consecutiveAbsentDays = stats.consecutiveAbsentDays,
+                                    teacherName = user.name,
+                                    department = dept,
+                                    collegeName = clg
+                                )
+                                studentForNotification = student
+                            }
                         }
                     )
                 }
@@ -673,6 +751,42 @@ fun AttendanceScreen(
                 }
             )
         }
+
+        // Parent Notification Dialog
+        studentForNotification?.let { s ->
+            val user = currentUser ?: InitialSeedData.defaultUser
+            val dept = ParentNotificationHelper.resolveDepartment(user.department, selectedClass?.subjectName, user.defaultSubject)
+            ParentNotificationDialog(
+                student = s,
+                notificationType = NotificationType.ABSENCE,
+                initialMessage = generatedNotificationMsg,
+                parentPhone = s.phone,
+                teacherName = user.name,
+                teacherDepartment = dept,
+                collegeName = user.college,
+                onDismiss = { studentForNotification = null }
+            )
+        }
+
+        // Change Class & Student Selection Dialog
+        if (showClassSetupDialog) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showClassSetupDialog = false },
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    ProfessorSetupScreen(
+                        viewModel = viewModel,
+                        isEditMode = true,
+                        onSetupCompleted = { newClassId ->
+                            showClassSetupDialog = false
+                            loadStudentsAndCheckExisting()
+                        },
+                        onCancel = { showClassSetupDialog = false }
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -681,8 +795,10 @@ fun StudentAttendanceToggleRow(
     student: StudentEntity,
     status: String,
     onToggle: () -> Unit,
-    onSetStatus: (String) -> Unit
+    onSetStatus: (String) -> Unit,
+    onNotifyParent: (() -> Unit)? = null
 ) {
+    val context = LocalContext.current
     val (bgColor, textColor, label) = when (status) {
         "Present" -> Triple(EmeraldLight, EmeraldPresent, "حاضر (P)")
         "Absent" -> Triple(CrimsonLight, CrimsonAbsent, "غیر حاضر (A)")
@@ -732,11 +848,26 @@ fun StudentAttendanceToggleRow(
                 Spacer(modifier = Modifier.width(10.dp))
 
                 Column {
-                    Text(
-                        text = student.name,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = student.name,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (student.session.isNotBlank()) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                            ) {
+                                Text(
+                                    text = student.session,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = "ولدیت: ${student.fatherName} • ${student.groupName}",
                         style = MaterialTheme.typography.bodySmall,
@@ -745,18 +876,66 @@ fun StudentAttendanceToggleRow(
                 }
             }
 
-            // Status Badge Button
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = bgColor,
-                modifier = Modifier.clickable { onToggle() }
-            ) {
-                Text(
-                    text = label,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                    color = textColor
-                )
+            // Quick Call / SMS & Direct Present/Absent Easy Controls
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                val phoneToContact = student.guardianPhone.ifBlank { student.phone }
+                if (status == "Absent" && phoneToContact.isNotBlank()) {
+                    IconButton(
+                        onClick = { CommunicationHelper.makePhoneCall(context, phoneToContact) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.Call, contentDescription = "Call Guardian", tint = CrimsonAbsent, modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(
+                        onClick = {
+                            if (onNotifyParent != null) {
+                                onNotifyParent()
+                            } else {
+                                val msg = "محترم والدین! آپ کے فرزند ${student.name} (رول نمبر ${student.rollNumber}) آج کالج سے غیر حاضر ہیں۔ گورنمنٹ ایسوسی ایٹ کالج مخدوم رشید ملتان"
+                                CommunicationHelper.sendSms(context, phoneToContact, msg)
+                            }
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "SMS Guardian", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                    }
+                }
+
+                // Direct Present Button (حاضر)
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (status == "Present") EmeraldPresent else Color.Transparent,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (status == "Present") EmeraldPresent else MaterialTheme.colorScheme.outlineVariant
+                    ),
+                    modifier = Modifier.clickable { onSetStatus("Present") }
+                ) {
+                    Text(
+                        text = "حاضر",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = if (status == "Present") Color.White else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                // Direct Absent Button (غیر حاضر)
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (status == "Absent") CrimsonAbsent else Color.Transparent,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (status == "Absent") CrimsonAbsent else MaterialTheme.colorScheme.outlineVariant
+                    ),
+                    modifier = Modifier.clickable { onSetStatus("Absent") }
+                ) {
+                    Text(
+                        text = "غیر حاضر",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = if (status == "Absent") Color.White else MaterialTheme.colorScheme.onSurface
+                    )
+                }
             }
         }
     }

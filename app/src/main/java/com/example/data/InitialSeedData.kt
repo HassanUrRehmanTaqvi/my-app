@@ -447,7 +447,7 @@ object InitialSeedData {
                 academicYearId = yearId,
                 ownerId = ownerId
             )
-        )
+        ).map { it.copy(session = "2025–2027") }
     }
 
     // Default Class created for teacher: "First Year B – اسلامیات لازمی"

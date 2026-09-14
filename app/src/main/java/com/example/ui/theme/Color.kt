@@ -2,7 +2,7 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Academic Institutional Palette
+// 1. Theme 1: Academic Navy & Emerald (شاہی نیوی و زمرد)
 val NavyPrimary = Color(0xFF1E3A8A)
 val NavyLight = Color(0xFF3B82F6)
 val NavyDark = Color(0xFF0F2027)
@@ -24,8 +24,17 @@ val SlateBorder = Color(0xFFE2E8F0)
 val SlateTextPrimary = Color(0xFF0F172A)
 val SlateTextSecondary = Color(0xFF64748B)
 
-// Dark Theme Variants
+// 2. Theme 2: Official Forest Green / Islamic Emerald (قومی و ادارتی سبز)
+val InstitutionalGreenPrimary = Color(0xFF0F766E)
+val InstitutionalGreenContainer = Color(0xFFCCFBF1)
+val InstitutionalGreenBackground = Color(0xFFF0FDF4)
+val InstitutionalGreenSurface = Color(0xFFFFFFFF)
+
+// 3. Theme 3: Royal Dark & Amber Gold (شاہی گہرا سلیٹی و سنہری)
 val DarkBackground = Color(0xFF0B1120)
 val DarkSurface = Color(0xFF1E293B)
 val DarkBorder = Color(0xFF334155)
 val DarkPrimary = Color(0xFF60A5FA)
+val GoldAccent = Color(0xFFF59E0B)
+val GoldAccentContainer = Color(0xFF451A03)
+
